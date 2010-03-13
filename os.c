@@ -8,26 +8,55 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <os.h>
 
-int _public os_errno(void)
+int os_errno(void)
 {
 	return errno;
 }
 
-const char _public *os_error(int e)
+const char *os_error(int e)
 {
 	return strerror(e);
 }
 
-const char _public *os_err(void)
+const char *os_err(void)
 {
 	return strerror(errno);
 }
 
-const char _public *os_err2(const char *def)
+const char *os_err2(const char *def)
 {
 	if ( def == NULL )
 		def = "Internal Error";
 	return (errno ? strerror(errno) : def);
+}
+
+int os_socket_nonblock(int s)
+{
+	int f;
+
+	if ( (f = fcntl(s, F_GETFL, 0)) < 0 )
+		return 0;
+
+	if ( fcntl(s, F_SETFL, f|O_NONBLOCK) < 0 )
+		return 0;
+
+	return 1;
+}
+
+int os_fd_close(int fd)
+{
+	int ret;
+
+	if ( fd < 0 )
+		return 1;
+intr:
+	ret = close(fd);
+	if ( ret && errno == EINTR )
+		goto intr;
+
+	return (ret == 0);
 }

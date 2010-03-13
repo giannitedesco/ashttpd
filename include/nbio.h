@@ -41,15 +41,14 @@ struct nbio_ops {
 };
 
 /* nbio API */
-void nbio_add(struct iothread *, struct nbio *, unsigned short) _nonull(1,2);
-void nbio_del(struct iothread *, struct nbio *) _nonull(1,2);
-void nbio_pump(struct iothread *, int mto) _nonull(1);
-void nbio_fini(struct iothread *) _nonull(1);
-int nbio_init(struct iothread *, const char *plugin) _nonull(1) _check_result;
-void nbio_inactive(struct iothread *, struct nbio *) _nonull(1,2);
-void nbio_set_wait(struct iothread *, struct nbio *, unsigned short)
-		_nonull(1,2);
-unsigned short nbio_get_wait(struct nbio *io) _nonull(1);
+_private void nbio_add(struct iothread *, struct nbio *, unsigned short);
+_private void nbio_del(struct iothread *, struct nbio *);
+_private void nbio_pump(struct iothread *, int mto);
+_private void nbio_fini(struct iothread *);
+_private int nbio_init(struct iothread *, const char *plugin);
+_private void nbio_inactive(struct iothread *, struct nbio *);
+_private void nbio_set_wait(struct iothread *, struct nbio *, unsigned short);
+_private unsigned short nbio_get_wait(struct nbio *io);
 
 /* eventloop plugin API */
 struct eventloop {
@@ -62,9 +61,9 @@ struct eventloop {
 	struct eventloop *next;
 };
 
-void eventloop_add(struct eventloop *e) _nonull(1);
-struct eventloop *eventloop_find(const char *name) _nonull(1) _check_result;
-void _eventloop_poll_ctor(void);
-void _eventloop_epoll_ctor(void);
+_private void eventloop_add(struct eventloop *e);
+_private struct eventloop *eventloop_find(const char *name);
+_private void _eventloop_poll_ctor(void);
+_private void _eventloop_epoll_ctor(void);
 
 #endif /* _NBIO_HEADER_INCLUDED_ */

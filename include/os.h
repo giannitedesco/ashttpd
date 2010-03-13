@@ -8,9 +8,11 @@
 
 #include <endian.h>
 
-int os_errno(void);
-const char *os_error(int);
-const char *os_err(void);
-const char *os_err2(const char *);
+_private int os_errno(void);
+_private const char *os_error(int);
+_private const char *os_err(void);
+_private const char *os_err2(const char *);
+_private int os_socket_nonblock(int s);
+_private int os_fd_close(int fd);
 
 #endif /* _FIRESTORM_OS_HEADER_INCLUDED_ */
