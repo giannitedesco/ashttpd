@@ -8,7 +8,7 @@
 
 #if __GNUC__ > 3 || (__GNUC__ == 3 && __GNUC_MINOR__ >= 1)
 #define _private __attribute__((visibility("hidden")))
-#define _friend __attribute__((visibility("protected")))
+#define _protected __attribute__((visibility("protected")))
 #endif
 
 #if __GNUC__ >= 3 || (__GNUC__ == 2 && __GNUC_MINOR__ >= 96 )

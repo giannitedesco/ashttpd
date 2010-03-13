@@ -17,7 +17,10 @@ CFLAGS=-g -pipe -O0 -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstric
 
 # Static libraries
 BINS = httpd
-HTTPD_OBJ = httpd.o nbio.o nbio-epoll.o nbio-poll.o os.o nbio-listener.o
+HTTPD_OBJ = httpd.o vec.o \
+		nbio.o nbio-epoll.o nbio-poll.o \
+		nbio-listener.o \
+		hgang.o os.o
 HTTPD_SLIBS = ../libaio/src/libaio.a
 HTTPD_LIBS = 
 

@@ -1,12 +1,4 @@
-#include <compiler.h>
-#include <stdint.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
-#include <list.h>
-#include <nbio.h>
+#include <ashttpd.h>
 #include <nbio-listener.h>
 
 static void new_conn(struct iothread *t, int s, void *priv)
