@@ -17,7 +17,7 @@ CFLAGS=-g -pipe -O0 -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstric
 
 # Static libraries
 BINS = httpd
-HTTPD_OBJ = httpd.o vec.o \
+HTTPD_OBJ = httpd.o http_conn.o vec.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o \
 		hgang.o os.o

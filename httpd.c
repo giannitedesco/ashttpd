@@ -1,10 +1,6 @@
 #include <ashttpd.h>
 #include <nbio-listener.h>
 
-static void new_conn(struct iothread *t, int s, void *priv)
-{
-}
-
 int main(int argc, char **argv)
 {
 	struct iothread iothread;
@@ -13,7 +9,7 @@ int main(int argc, char **argv)
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
 
-	io = listener_inet(SOCK_STREAM, IPPROTO_TCP, 0, 1234, new_conn, NULL);
+	io = listener_inet(SOCK_STREAM, IPPROTO_TCP, 0, 1234, http_conn, NULL);
 	listener_add(&iothread, io);
 
 	do {
