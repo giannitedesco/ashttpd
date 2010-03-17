@@ -6,13 +6,17 @@
 #ifndef _FIRESTORM_OS_HEADER_INCLUDED_
 #define _FIRESTORM_OS_HEADER_INCLUDED_
 
-#include <endian.h>
-
+_private const uint8_t *map_file(int fd, size_t *len);
 _private int os_errno(void);
 _private const char *os_error(int);
 _private const char *os_err(void);
 _private const char *os_err2(const char *);
-_private int os_socket_nonblock(int s);
-_private int os_fd_close(int fd);
+
+_private int fd_read(int fd, void *buf, size_t *sz, int *eof) _check_result;
+_private int fd_write(int fd, const void *buf, size_t len) _check_result;
+_private int fd_close(int fd);
+
+_private int fd_block(int fd, int b);
+_private int fd_coe(int fd, int coe);
 
 #endif /* _FIRESTORM_OS_HEADER_INCLUDED_ */

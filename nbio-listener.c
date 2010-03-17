@@ -39,7 +39,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 		return;
 	}
 
-	if ( !os_socket_nonblock(fd) )
+	if ( !fd_block(fd, 0) )
 		return;
 
 	printf("Accepted connection from %s:%u\n",
@@ -51,7 +51,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 
 static void listener_dtor(struct iothread *t, struct nbio *io)
 {
-	os_fd_close(io->fd);
+	fd_close(io->fd);
 	free(io);
 }
 
@@ -87,7 +87,7 @@ struct nbio *listener_inet(int type, int proto, uint32_t addr, uint16_t port,
 	}while(0);
 #endif
 
-	if ( !os_socket_nonblock(l->io.fd) )
+	if ( !fd_block(l->io.fd, 0) )
 		goto err_close;
 
 	sa.sin_family = AF_INET;
@@ -105,7 +105,7 @@ struct nbio *listener_inet(int type, int proto, uint32_t addr, uint16_t port,
 	return &l->io;
 
 err_close:
-	os_fd_close(l->io.fd);
+	fd_close(l->io.fd);
 err_free:
 	free(l);
 	return NULL;

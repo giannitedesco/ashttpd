@@ -137,5 +137,5 @@ void http_conn(struct iothread *t, int s, void *priv)
 err_free_conn:
 	hgang_return(conns, conn);
 err:
-	os_fd_close(s);
+	fd_close(s);
 }
