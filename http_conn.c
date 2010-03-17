@@ -12,6 +12,14 @@ static void __attribute__((constructor)) http_conn_ctor(void)
 	bm_skip(http_req_terminator, sizeof(http_req_terminator), rt_skip);
 }
 
+static const char * const resp404 =
+	"HTTP/1.1 404 FUCK_OFF\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 77\r\n"
+	"\r\n"
+	"<html><head><title>Fuck Off</title></head>"
+	"<body><h1>Hello World</body></html>";
+
 static void http_write(struct iothread *t, struct nbio *n)
 {
 	struct http_conn *h;
@@ -19,7 +27,7 @@ static void http_write(struct iothread *t, struct nbio *n)
 
 	h = (struct http_conn *)n;
 
-	ret = send(h->h_nbio.fd, "HELLO\r\n", 7, MSG_NOSIGNAL);
+	ret = send(h->h_nbio.fd, resp404, strlen(resp404), MSG_NOSIGNAL);
 	if ( ret < 0 && errno == EAGAIN ) {
 		nbio_inactive(t, n);
 		return;
