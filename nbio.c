@@ -103,7 +103,8 @@ void nbio_pump(struct iothread *t, int mto)
 
 	while ( !list_empty(&t->active) ) {
 		list_for_each_entry_safe(n, tmp, &t->active, list) {
-			assert(NBIO_DELETED != n->mask);
+			if ( NBIO_DELETED == n->mask )
+				break;
 
 			if ( n->flags & NBIO_ERROR ) {
 				n->mask = NBIO_DELETED;
@@ -150,6 +151,7 @@ void nbio_inactive(struct iothread *t, struct nbio *n)
 
 void nbio_set_wait(struct iothread *t, struct nbio *io, unsigned short wait)
 {
+	assert(io->mask != NBIO_DELETED);
 	wait &= NBIO_WAIT;
 	io->mask = io->flags = wait;
 	t->plugin->active(t, io);
