@@ -42,9 +42,9 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	if ( !fd_block(fd, 0) )
 		return;
 
-	printf("Accepted connection from %s:%u\n",
-		inet_ntoa(sa.sin_addr),
-		htons(sa.sin_port));
+	//printf("Accepted connection from %s:%u\n",
+	//	inet_ntoa(sa.sin_addr),
+	//	htons(sa.sin_port));
 
 	l->cbfn(t, fd, l->priv);
 }

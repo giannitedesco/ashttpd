@@ -66,10 +66,10 @@ static void http_write_hdr(struct iothread *t, struct http_conn *h)
 	}
 }
 
-static void http_write_data(struct iothread *t, struct http_conn *h)
+static void http_write_data_sync(struct iothread *t, struct http_conn *h)
 {
 	int flags = MSG_NOSIGNAL;
-	char buf[1024];
+	char buf[8192];
 	ssize_t ret;
 	size_t sz;
 	int eof = 0;
@@ -81,7 +81,6 @@ static void http_write_data(struct iothread *t, struct http_conn *h)
 	}
 
 	dprintf("Read %u bytes in to buffer\n", sz);
-
 
 	if ( sz == h->h_data_len )
 		flags |= MSG_MORE;
@@ -116,7 +115,7 @@ static void http_write(struct iothread *t, struct nbio *n)
 		http_write_hdr(t, h);
 		break;
 	case HTTP_CONN_DATA:
-		http_write_data(t, h);
+		http_write_data_sync(t, h);
 		break;
 	default:
 		dprintf("uh %u\n", h->h_state);
