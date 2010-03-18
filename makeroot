@@ -148,7 +148,7 @@ class NameDB:
 
 		f.write("static const struct {\n")
 		f.write("\tstruct ro_vec name;\n")
-		f.write("\tunsigned int mime_type\n")
+		f.write("\tunsigned int mime_type;\n")
 		f.write("\toff_t f_ofs;\n")
 		f.write("\tsize_t f_len;\n")
 		f.write("}webroot_namedb[] = {\n")
@@ -157,13 +157,13 @@ class NameDB:
 			o = self.__names[n]
 			mime[o.mime_type] = None
 			f.write("\t{ ")
-			f.write(".name = { .v_ptr = \"%s\""%n)
-			f.write("v_len = %u},\n"%len(n))
+			f.write(".name = { .v_ptr = \"%s\", "%n)
+			f.write(".v_len = %u},\n"%len(n))
 			f.write("\t\t.mime_type = %u,\n"%mimelist.index(
 							o.mime_type))
 			f.write("\t\t.f_ofs = %u, .f_len = %u"%(o.fpos, o.flen))
 			f.write(" },\n")
-		f.write("}\n\n")
+		f.write("};\n\n")
 
 		o404 = self.__objects.get_404()
 		f.write("static const off_t obj404_f_ofs = %u;\n"%o404.fpos)
