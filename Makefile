@@ -5,7 +5,7 @@ AR = $(CROSS_COMPILE)ar
 EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64
 CFLAGS=-g -pipe -O0 -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
-HTTPD_OBJ = httpd.o http_conn.o http_parse.o \
+HTTPD_OBJ = httpd.o http_conn.o http_parse.o http_buf.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o \
 		vec.o hgang.o os.o \

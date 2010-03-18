@@ -33,6 +33,12 @@ struct _hgang {
 	void *free;
 };
 
+
+size_t hgang_object_size(hgang_t h)
+{
+	return h->obj_size;
+}
+
 /** hgang memory area descriptor.
  * \ingroup g_hgang
 */

@@ -21,4 +21,6 @@ _private void hgang_return(hgang_t h, void *obj);
 
 _private int hgang_foreach(hgang_t h, hgang_cb_t cb, void *priv);
 
+_private size_t hgang_object_size(hgang_t h);
+
 #endif /* _HGANG_HEADER_INCLUDED_ */
