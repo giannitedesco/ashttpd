@@ -89,8 +89,10 @@ static void http_write_data_sync(struct iothread *t, struct http_conn *h)
 	/* Top up buffer if necessary */
 	wptr = buf_write(h->h_dat, &wsz);
 	if ( wsz ) {
-		size_t sz = wsz;
+		size_t sz;
 		int eof = 0;
+		
+		sz = ( wsz > h->h_data_len ) ? h->h_data_len : wsz;
 
 		if ( !fd_pread(webroot_fd, h->h_data_off,
 			wptr, &sz, &eof) || eof ) {

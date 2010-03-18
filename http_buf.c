@@ -4,12 +4,6 @@
 #include <assert.h>
 #include "webroot.h"
 
-#if 0
-#define dprintf printf
-#else
-#define dprintf(x...) do {} while(0)
-#endif
-
 static hgang_t h_req;
 static hgang_t h_res;
 static hgang_t h_dat;
