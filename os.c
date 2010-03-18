@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
+#define __USE_UNIX98
 #include <unistd.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -224,6 +225,62 @@ again:
 	 * It can also happen on sockets and character devices.
 	 */
 	if ( (size_t)ret < len ) {
+		buf += (size_t)ret;
+		len -= (size_t)ret;
+		goto again;
+	}
+
+	return 1;
+}
+
+/** Read from a file descriptor handling all errors.
+ * \ingroup g_fdctl
+ * @param fd file descriptor
+ * @param buf data to read
+ * @param sz pointer to size of buffer
+ * @param eof EOF flag, is set to 1 if EOF is hit, may not be NULL
+ *
+ * Call read(2) with given parameters but handle all possible
+ * errors. We handle short reads, interrupted calls, fd going
+ * O_NONBLOCK under us, and only bail on really unrecoverable
+ * errors.
+ *
+ * @return 0 on unrecoverable error, 1 on success. Even an
+ * unrecoverable error may return a non-zero value in sz and
+ * hence valid data. If EOF is experienced on the file the
+ * eof flag is set to 1.
+ */
+int fd_pread(int fd, off_t off, void *buf, size_t *sz, int *eof)
+{
+	size_t len = *sz;
+	ssize_t ret;
+
+	*sz = 0;
+
+again:
+	ret = pread(fd, buf, likely(len < SSIZE_MAX) ? len : SSIZE_MAX, off);
+	if ( ret < 0 ) {
+		if ( errno == EINTR )
+			goto again;
+		if ( errno == EAGAIN &&
+			fd_wait_single(fd, POLLIN) )
+			goto again;
+		return 0;
+	}
+
+	if ( (size_t)ret == 0 ) {
+		*eof = 1;
+		return 1;
+	}
+
+	*sz += (size_t)ret;
+
+	/* This can happen on a regular file if a long I/O is interrupted
+	 * for example on NFS in soft/interruptable mode in the Linux kernel.
+	 * It can also happen on sockets and character devices.
+	 */
+	if ( (size_t)ret < len ) {
+		off += (off_t)ret;
 		buf += (size_t)ret;
 		len -= (size_t)ret;
 		goto again;

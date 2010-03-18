@@ -146,28 +146,33 @@ class NameDB:
 			f.write("\t\"%s\",\n"%x)
 		f.write("};\n\n")
 
-		f.write("static const struct {\n")
+		f.write("static const struct webroot_name {\n")
 		f.write("\tstruct ro_vec name;\n")
 		f.write("\tunsigned int mime_type;\n")
 		f.write("\toff_t f_ofs;\n")
 		f.write("\tsize_t f_len;\n")
 		f.write("}webroot_namedb[] = {\n")
 
+		o404 = self.__objects.get_404()
+
 		for n in self:
 			o = self.__names[n]
-			mime[o.mime_type] = None
+			if o == o404:
+				print "skipped: %s"%n
+				continue
 			f.write("\t{ ")
-			f.write(".name = { .v_ptr = \"%s\", "%n)
-			f.write(".v_len = %u},\n"%len(n))
+			f.write(".name = { .v_ptr = (uint8_t *)\"%s\",\n"%n)
+			f.write("\t\t.v_len = %u},\n"%len(n))
 			f.write("\t\t.mime_type = %u,\n"%mimelist.index(
 							o.mime_type))
 			f.write("\t\t.f_ofs = %u, .f_len = %u"%(o.fpos, o.flen))
 			f.write(" },\n")
 		f.write("};\n\n")
 
-		o404 = self.__objects.get_404()
 		f.write("static const off_t obj404_f_ofs = %u;\n"%o404.fpos)
 		f.write("static const size_t obj404_f_len = %u;\n"%o404.flen)
+		f.write("static const unsigned int obj404_mime_type")
+		f.write(" = %u;\n"%mimelist.index(o404.mime_type))
 
 def webmap(webroot, path):
 	ret = os.path.join(webroot, path)

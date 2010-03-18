@@ -19,6 +19,8 @@
 #define HTTP_MAX_VEC	8
 #define HTTP_MAX_REQ	(HTTP_VEC_BYTES * HTTP_MAX_VEC)
 
+#define HTTP_MAX_RESP	1024
+
 struct vec {
 	uint8_t *v_ptr;
 	size_t v_len;
@@ -45,11 +47,23 @@ _private const uint8_t *bm_find(const uint8_t *n, size_t nlen,
 
 _private void http_conn(struct iothread *t, int s, void *priv);
 
+#define HTTP_CONN_REQUEST	0
+/* TODO: gobble any POST data */
+#define HTTP_CONN_HEADER	1
+#define HTTP_CONN_DATA		2
 struct http_conn {
 	struct nbio	h_nbio;
-	uint8_t		*h_buf;
-	uint8_t		*h_buf_ptr;
-	const uint8_t	*h_buf_end;
+	unsigned int	h_state;
+
+	uint8_t		*h_req;
+	uint8_t		*h_req_ptr;
+	const uint8_t	*h_req_end;
+
+	uint8_t		*h_res;
+	const uint8_t	*h_res_end;
+
+	off_t		h_data_off;
+	size_t		h_data_len;
 };
 
 #define HTTP_VER_UNKNOWN	0xff

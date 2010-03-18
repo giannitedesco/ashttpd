@@ -13,6 +13,7 @@ _private const char *os_err(void);
 _private const char *os_err2(const char *);
 
 _private int fd_read(int fd, void *buf, size_t *sz, int *eof) _check_result;
+_private int fd_pread(int fd, off_t off, void *buf, size_t *sz, int *eof) _check_result;
 _private int fd_write(int fd, const void *buf, size_t len) _check_result;
 _private int fd_close(int fd);
 
