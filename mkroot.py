@@ -82,7 +82,11 @@ class ObjectStore:
 
 	def __init__(self):
 		self.__obj_db = {}
+		self.__404 = self.add()
 		return
+
+	def get_404(self):
+		return self.__404
 
 	def add(self, path = None):
 		if not path:
@@ -123,13 +127,24 @@ class NameDB:
 		self.__objects.write(obj_fn)
 		f = open(ndb_fn, 'w')
 		print "Writing name DB: %s"%ndb_fn
+
+		f.write("static const struct {\n")
+		f.write("\tstruct ro_vec name;\n")
+		f.write("\toff_t f_ofs;\n")
+		f.write("\tsize_t f_len;\n")
+		f.write("}webroot_namedb[] = {\n")
 		for n in self:
 			o = self.__names[n]
 			f.write("\t{ ")
-			f.write("{ .v_ptr = \"%s\"\n"%n)
-			f.write("\t\t.v_len = %u},\n"%len(n))
+			f.write(".name = { .v_ptr = \"%s\""%n)
+			f.write("v_len = %u},\n"%len(n))
 			f.write("\t\t.f_ofs = %u, .f_len = %u"%(o.fpos, o.flen))
 			f.write(" },\n")
+		f.write("}\n")
+
+		o404 = self.__objects.get_404()
+		f.write("static const off_t obj404_f_ofs = %u;\n"%o404.fpos)
+		f.write("static const size_t obj404_f_len = %u;\n"%o404.flen)
 
 def webmap(webroot, path):
 	ret = os.path.join(webroot, path)
