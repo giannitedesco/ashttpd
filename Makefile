@@ -8,18 +8,17 @@ CFLAGS=-g -pipe -O0 -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstric
 HTTPD_OBJ = httpd.o http_conn.o http_parse.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o \
-		skunk.o \
 		vec.o hgang.o os.o \
 		boyer-moore.o
 HTTPD_SLIBS = ../libaio/src/libaio.a
 HTTPD_LIBS = 
 
-MAKEROOT_OBJ = makeroot.o skunk_make.o hgang.o fobuf.o os.o
-MAKEROOT_SLIBS =
-MAKEROOT_LIBS =
+#MAKEROOT_OBJ = makeroot.o skunk_make.o hgang.o fobuf.o os.o
+#MAKEROOT_SLIBS =
+#MAKEROOT_LIBS =
 
-BINS = httpd makeroot
-ALL_OBJS = $(HTTPD_OBJ) $(MAKEROOT_OBJ)
+BINS = httpd
+ALL_OBJS = $(HTTPD_OBJ)
 ALL_TARGETS = $(BINS)
 
 TARGET = all
@@ -39,8 +38,8 @@ Make.dep: Makefile *.c include/*.h
 httpd: $(HTTPD_OBJ) $(HTTPD_SLIBS)
 	$(CC) $(HTTPD_LIBS) $(CFLAGS) -o $@ $^
 
-makeroot: $(MAKEROOT_OBJ) $(MAKEROOT_SLIBS)
-	$(CC) $(MAKEROOT_LIBS) $(CFLAGS) -o $@ $^
+#makeroot: $(MAKEROOT_OBJ) $(MAKEROOT_SLIBS)
+#	$(CC) $(MAKEROOT_LIBS) $(CFLAGS) -o $@ $^
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJS) Make.dep
