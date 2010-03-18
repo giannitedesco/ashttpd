@@ -10,7 +10,13 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 
 	io = listener_inet(SOCK_STREAM, IPPROTO_TCP, 0, 1234, http_conn, NULL);
+	if ( NULL == io )
+		return EXIT_FAILURE;
 	listener_add(&iothread, io);
+
+	if ( !_io_init(&iothread) ) {
+		return EXIT_FAILURE;
+	}
 
 	do {
 		nbio_pump(&iothread, -1);

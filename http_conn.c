@@ -15,11 +15,11 @@ static unsigned int concurrency;
 static hgang_t conns;
 static int rt_skip[BM_SKIP_LEN];
 static const uint8_t http_req_terminator[4] = "\r\n\r\n";
-static int webroot_fd;
+static int webroot_fd = -1;
 
 static void __attribute__((constructor)) http_conn_ctor(void)
 {
-	conns = hgang_new(sizeof(struct http_conn), 256);
+	conns = hgang_new(sizeof(struct http_conn), 0);
 	bm_skip(http_req_terminator, sizeof(http_req_terminator), rt_skip);
 	webroot_fd = open("webroot.objdb", O_RDONLY);
 
@@ -92,7 +92,7 @@ static void http_write(struct iothread *t, struct nbio *n)
 		ret = http_write_hdr(t, h);
 		break;
 	case HTTP_CONN_DATA:
-		ret = io_sync_write(t, h, webroot_fd);
+		ret = _io_write(t, h, webroot_fd);
 		break;
 	default:
 		dprintf("uh %u\n", h->h_state);
@@ -171,7 +171,7 @@ static int handle_get(struct iothread *t, struct http_conn *h,
 	}
 
 	if ( h->h_data_len ) {
-		if ( !io_sync_prep(t, h, webroot_fd) )
+		if ( !_io_prep(t, h, webroot_fd) )
 			return 0;
 	}
 

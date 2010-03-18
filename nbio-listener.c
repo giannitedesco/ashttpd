@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <stdio.h>
+#define __USE_GNU
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -32,15 +33,22 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	socklen_t salen = sizeof(sa);
 	int fd;
 
+#if HAVE_ACCEPT4
+	fd = accept4(l->io.fd, (struct sockaddr *)&sa, &salen,
+			SOCK_NONBLOCK|SOCK_CLOEXEC);
+#else
 	fd = accept(l->io.fd, (struct sockaddr *)&sa, &salen);
+#endif
 	if ( fd < 0 ) {
 		if ( errno == EAGAIN )
 			nbio_inactive(t, &l->io);
 		return;
 	}
 
+#if !HAVE_ACCEPT4
 	if ( !fd_block(fd, 0) )
 		return;
+#endif
 
 	//printf("Accepted connection from %s:%u\n",
 	//	inet_ntoa(sa.sin_addr),

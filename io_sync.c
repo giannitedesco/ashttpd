@@ -6,6 +6,11 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
+int io_sync_init(struct iothread *t)
+{
+	return 1;
+}
+
 int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
 {
 	int flags = MSG_NOSIGNAL;
@@ -59,8 +64,7 @@ int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
 		h->h_req = buf_alloc_req();
 		if ( NULL == h->h_req ) {
 			printf("OOM on res after data...\n");
-			nbio_del(t, &h->h_nbio);
-			return;
+			return 0;
 		}
 		dprintf("DONE\n");
 	}else{

@@ -2,13 +2,13 @@ CC = $(CROSS_COMPILE)gcc
 LD = $(CROSS_COMPILE)ld
 AR = $(CROSS_COMPILE)ar
 
-EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64
+EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
 CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
 HTTPD_OBJ = httpd.o http_conn.o http_parse.o http_buf.o \
-		io_sync.o \
+		io_sync.o io_async.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
-		nbio-listener.o \
+		nbio-listener.o nbio-eventfd.o \
 		vec.o hgang.o os.o \
 		boyer-moore.o
 HTTPD_SLIBS = ../libaio/src/libaio.a
