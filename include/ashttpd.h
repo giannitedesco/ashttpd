@@ -85,7 +85,6 @@ struct http_conn {
 	struct http_buf	*h_req;
 	struct http_buf	*h_res;
 	struct http_buf	*h_dat;
-	struct http_buf	*h_async;
 
 	off_t		h_data_off;
 	size_t		h_data_len;

@@ -230,4 +230,4 @@ if __name__ == '__main__':
 		path = uri.lstrip("/")
 		ndb[uri] = webmap(webroot, path)
 	
-	ndb.write("webroot.objdb", "webroot.h", workset = False)
+	ndb.write("webroot.objdb", "webroot.h", workset = True)

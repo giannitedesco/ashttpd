@@ -15,30 +15,19 @@ static hgang_t aio_iocbs;
 static struct nbio *efd;
 static unsigned in_flight;
 
-static int aio_underflow(struct iothread *t, struct http_conn *h, int fd)
+static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 {
 	struct iocb *iocb;
 	uint8_t *ptr;
 	size_t sz;
 
-	if ( h->h_data_len == 0 )
-		return 1;
+	assert(h->h_data_len);
 
 	iocb = hgang_alloc0(aio_iocbs);
 	if ( NULL == iocb )
 		return 0;
 
-	if ( NULL == h->h_async ) {
-		h->h_async = buf_alloc_data();
-		dprintf("allocated buffer\n");
-		if ( NULL == h->h_async ) {
-			hgang_return(aio_iocbs, iocb);
-			printf("OOM on res...\n");
-			return 0;
-		}
-	}
-
-	ptr = buf_write(h->h_async, &sz);
+	ptr = buf_write(h->h_dat, &sz);
 	sz = (h->h_data_len < sz) ? h->h_data_len : sz;
 
 	io_prep_pread(iocb, fd, ptr, sz, h->h_data_off);
@@ -55,23 +44,9 @@ static int aio_underflow(struct iothread *t, struct http_conn *h, int fd)
 	return 1;
 }
 
-static void flip_buffers(struct http_conn *h)
-{
-	struct http_buf *tmp;
-
-	dprintf("flipping buffers\n");
-	tmp = h->h_dat;
-	h->h_dat = h->h_async;
-	h->h_async = tmp;
-	if ( h->h_async )
-		buf_reset(h->h_async);
-}
-
 static void handle_completion(struct iothread *t, struct iocb *iocb,
 				struct http_conn *h, int ret)
 {
-	int fd = iocb->aio_fildes;
-
 	assert(h->h_state == HTTP_CONN_DATA);
 
 	hgang_return(aio_iocbs, iocb);
@@ -84,16 +59,9 @@ static void handle_completion(struct iothread *t, struct iocb *iocb,
 		return;
 	}
 
-	buf_done_write(h->h_async, ret);
+	buf_done_write(h->h_dat, ret);
 	h->h_data_off += (size_t)ret;
 	h->h_data_len -= (size_t)ret;
-
-	if ( NULL == h->h_dat ) {
-		dprintf("submit from completion\n");
-		flip_buffers(h);
-		aio_underflow(t, h, fd);
-		/* FIXME: Same herre */
-	}
 
 	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
 }
@@ -146,14 +114,15 @@ int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 
 	dprintf("\n");
 
-	if ( NULL == h->h_dat ) {
+	/* FIXME: MSG_MORE semantics */
+	ptr = buf_read(h->h_dat, &sz);
+
+	if ( sz == 0 ) {
 		dprintf("Async read not finished, sleeeeep....\n");
 		nbio_set_wait(t, &h->h_nbio, 0);
 		return 1;
 	}
 
-	/* FIXME: MSG_MORE semantics */
-	ptr = buf_read(h->h_dat, &sz);
 	ret = send(h->h_nbio.fd, ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
 		nbio_inactive(t, &h->h_nbio);
@@ -171,47 +140,41 @@ int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 		return 1;
 	}
 
-	if ( NULL == h->h_async ) {
-		if ( h->h_data_len == 0 )
-			goto done;
-		dprintf("Underflow??\n");
-		flip_buffers(h);
-		return aio_underflow(t, h, fd);
-	}
-
-	ptr = buf_read(h->h_async, &sz);
-	if ( sz ) {
-		dprintf("Fast flip %u bytes completed\n", sz);
-		flip_buffers(h);
-		return aio_underflow(t, h, fd);
-	}else{
-		dprintf("yeah hmm\n");
-	}
-
-done:
-	buf_free_data(h->h_dat);
-	h->h_dat = NULL;
 
 	if ( h->h_data_len ) {
-		dprintf("I/O pending, burned buffer %u bytes left\n",
-			h->h_data_len);
-	}else{
-		buf_free_data(h->h_async);
-		h->h_async = NULL;
-		nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-		h->h_state = HTTP_CONN_REQUEST;
-		h->h_req = buf_alloc_req();
-		if ( NULL == h->h_req ) {
-			printf("OOM on res after async data...\n");
-			return 0;
-		}
-		dprintf("DONE\n");
+		dprintf("Submit more, %u bytes left\n", h->h_data_len);
+		buf_reset(h->h_dat);
+		return aio_submit(t, h, fd);
 	}
+
+	buf_free_data(h->h_dat);
+	h->h_dat = NULL;
+	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
+	h->h_state = HTTP_CONN_REQUEST;
+	h->h_req = buf_alloc_req();
+	if ( NULL == h->h_req ) {
+		printf("OOM on res after async data...\n");
+		return 0;
+	}
+	dprintf("DONE\n");
 
 	return 1;
 }
 
 int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
 {
-	return aio_underflow(t, h, fd);
+	h->h_dat = buf_alloc_data();
+	dprintf("allocated buffer\n");
+	if ( NULL == h->h_dat ) {
+		printf("OOM on res...\n");
+		return 0;
+	}
+
+	if ( !aio_submit(t, h, fd) ) {
+		buf_free_data(h->h_dat);
+		h->h_dat = NULL;
+		return 0;
+	}
+
+	return 1;
 }
