@@ -4,6 +4,10 @@ from sys import stdin, argv
 import os, stat
 import magic
 
+# daim bar
+globalmagic = magic.open(magic.MAGIC_MIME)
+globalmagic.load()
+
 class foostr(str):
 	def __lt__(a, b):
 		if len(a) < len(b):
@@ -104,8 +108,7 @@ class ObjectStore:
 		else:
 			self.__obj_db[key] = candidate
 			ret = candidate
-			m = magic.open(magic.MAGIC_MIME)
-			m.load()
+			m = globalmagic
 			ret.set_mime_type(m.file(ret.path))
 
 		return ret
