@@ -150,13 +150,14 @@ class NameDB:
 			n += 1
 		self.__names = newmap
 
-	def write(self, obj_fn, ndb_fn):
+	def write(self, obj_fn, ndb_fn, workset = False):
 		self.__objects.write(obj_fn)
 
 		f = open(ndb_fn, 'w')
 		print "Writing name DB: %s"%ndb_fn
 
-		self.__workset()
+		if workset:
+			self.__workset()
 
 		mime = {}
 		for n in self:
@@ -229,4 +230,4 @@ if __name__ == '__main__':
 		path = uri.lstrip("/")
 		ndb[uri] = webmap(webroot, path)
 	
-	ndb.write("webroot.objdb", "webroot.h")
+	ndb.write("webroot.objdb", "webroot.h", workset = False)
