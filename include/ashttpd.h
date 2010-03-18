@@ -60,6 +60,7 @@ struct http_conn {
 	const uint8_t	*h_req_end;
 
 	uint8_t		*h_res;
+	const uint8_t	*h_res_ptr;
 	const uint8_t	*h_res_end;
 
 	off_t		h_data_off;

@@ -4,6 +4,12 @@
 #include <assert.h>
 #include "webroot.h"
 
+#if 0
+#define dprintf printf
+#else
+#define dprintf(x...) do {} while(0)
+#endif
+
 static hgang_t conns;
 static hgang_t buffs;
 static hgang_t hbufs;
@@ -36,7 +42,8 @@ static void http_write_hdr(struct iothread *t, struct http_conn *h)
 	if ( h->h_data_len )
 		flags |= MSG_MORE;
 
-	ret = send(h->h_nbio.fd, h->h_res, h->h_res_end - h->h_res, flags);
+	ret = send(h->h_nbio.fd, h->h_res_ptr,
+			h->h_res_end - h->h_res_ptr, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
 		nbio_inactive(t, &h->h_nbio);
 		return;
@@ -45,11 +52,11 @@ static void http_write_hdr(struct iothread *t, struct http_conn *h)
 		return;
 	}
 
-	h->h_res += (size_t)ret;
+	h->h_res_ptr += (size_t)ret;
 
-	if ( h->h_res == h->h_res_end ) {
+	if ( h->h_res_ptr == h->h_res_end ) {
 		if ( h->h_data_len ) {
-			printf("Header done, %u bytes of data\n",
+			dprintf("Header done, %u bytes of data\n",
 				h->h_data_len);
 			h->h_state = HTTP_CONN_DATA;
 		}else{
@@ -73,7 +80,7 @@ static void http_write_data(struct iothread *t, struct http_conn *h)
 		return;
 	}
 
-	printf("Read %u bytes in to buffer\n", sz);
+	dprintf("Read %u bytes in to buffer\n", sz);
 
 
 	if ( sz == h->h_data_len )
@@ -90,12 +97,12 @@ static void http_write_data(struct iothread *t, struct http_conn *h)
 
 	h->h_data_off += (size_t)ret;
 	h->h_data_len -= (size_t)ret;
-	printf("Transmitted %u/%u bytes\n", ret, sz);
+	dprintf("Transmitted %u/%u bytes\n", ret, sz);
 
 	if ( h->h_data_len == 0 ) {
 		nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 		h->h_state = HTTP_CONN_REQUEST;
-		printf("DONE\n");
+		dprintf("DONE\n");
 	}
 }
 
@@ -112,7 +119,7 @@ static void http_write(struct iothread *t, struct nbio *n)
 		http_write_data(t, h);
 		break;
 	default:
-		printf("uh %u\n", h->h_state);
+		dprintf("uh %u\n", h->h_state);
 		abort();
 	}
 }
@@ -198,10 +205,10 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 	blen = h->h_req_ptr - h->h_req;
 
 	hlen = http_req(&r, h->h_req, blen);
-	printf("%u/%u bytes were request\n", hlen, blen);
+	dprintf("%u/%u bytes were request\n", hlen, blen);
 	h->h_req_ptr = h->h_req + hlen;
 	if ( h->h_req_ptr != h->h_req + blen ) {
-		printf("memmove %u: %.*s",
+		dprintf("memmove %u: %.*s",
 			blen - (h->h_req_ptr - h->h_req),
 			blen - (h->h_req_ptr - h->h_req),
 			h->h_req_ptr);
@@ -212,6 +219,7 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 
 	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
 	h->h_state = HTTP_CONN_HEADER;
+	h->h_res_ptr = h->h_res;
 
 	if ( vstrcmp_fast(&r.method, "GET") ) {
 		response_400(t, h);
@@ -242,21 +250,21 @@ static void http_read(struct iothread *t, struct nbio *n)
 		return;
 	}
 
-	printf("Received %u bytes: %.*s\n",
+	dprintf("Received %u bytes: %.*s\n",
 		ret, ret, h->h_req_ptr);
 	h->h_req_ptr += (size_t)ret;
 
-	printf("Searching for terminating %u bytes\n",
+	dprintf("Searching for terminating %u bytes\n",
 		sizeof(http_req_terminator));
 	term = bm_find(http_req_terminator, sizeof(http_req_terminator),
 		h->h_req, h->h_req_ptr - h->h_req,
 		rt_skip);
 	if ( NULL == term ) {
 		if ( unlikely(h->h_req_ptr == h->h_req_end) ) {
-			printf("Nah, buffer full, resetting\n");
+			dprintf("Nah, buffer full, resetting\n");
 			h->h_req_ptr = h->h_req;
 		}else{
-			printf("Nah, waiting for more data\n");
+			dprintf("Nah, waiting for more data\n");
 			return;
 		}
 	}
@@ -268,7 +276,7 @@ static void http_dtor(struct iothread *t, struct nbio *n)
 {
 	struct http_conn *h;
 	h = (struct http_conn *)n;
-	printf("Connection killed\n");
+	dprintf("Connection killed\n");
 	hgang_return(buffs, h->h_req);
 	hgang_return(hbufs, h->h_res);
 	hgang_return(conns, h);
@@ -305,6 +313,7 @@ void http_conn(struct iothread *t, int s, void *priv)
 		goto err_free_buf;
 	}
 
+	h->h_res_ptr = h->h_res;
 	h->h_res_end = h->h_res + HTTP_MAX_REQ;
 
 	h->h_nbio.fd = s;
