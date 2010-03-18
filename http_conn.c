@@ -34,7 +34,7 @@ static const char * const resp400 =
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>Bad Request</body></html>";
 
-static void http_write_hdr(struct iothread *t, struct http_conn *h)
+static int http_write_hdr(struct iothread *t, struct http_conn *h)
 {
 	const uint8_t *ptr;
 	size_t sz;
@@ -49,10 +49,9 @@ static void http_write_hdr(struct iothread *t, struct http_conn *h)
 	ret = send(h->h_nbio.fd, ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
 		nbio_inactive(t, &h->h_nbio);
-		return;
+		return 1;
 	}else if ( ret <= 0 ) {
-		nbio_del(t, &h->h_nbio);
-		return;
+		return 0;
 	}
 
 	buf_done_read(h->h_res, ret);
@@ -73,98 +72,35 @@ static void http_write_hdr(struct iothread *t, struct http_conn *h)
 			h->h_req = buf_alloc_req();
 			if ( NULL == h->h_req ) {
 				printf("OOM on res after header...\n");
-				nbio_del(t, &h->h_nbio);
-				return;
+				return 0;
 			}
 		}
 	}
-}
 
-static void http_write_data_sync(struct iothread *t, struct http_conn *h)
-{
-	int flags = MSG_NOSIGNAL;
-	const uint8_t *rptr;
-	size_t wsz, rsz;
-	uint8_t *wptr;
-	ssize_t ret;
-
-	/* Top up buffer if necessary */
-	wptr = buf_write(h->h_dat, &wsz);
-	if ( wsz ) {
-		size_t sz;
-		int eof = 0;
-		
-		sz = ( wsz > h->h_data_len ) ? h->h_data_len : wsz;
-
-		if ( !fd_pread(webroot_fd, h->h_data_off,
-			wptr, &sz, &eof) || eof ) {
-			nbio_del(t, &h->h_nbio);
-			return;
-		}
-
-		dprintf("Read %u bytes in to buffer\n", sz);
-		buf_done_write(h->h_dat, sz);
-		h->h_data_off += sz;
-		h->h_data_len -= sz;
-	}
-
-	if ( h->h_data_len )
-		flags |= MSG_MORE;
-
-	rptr = buf_read(h->h_dat, &rsz);
-	ret = send(h->h_nbio.fd, rptr, rsz, flags);
-	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &h->h_nbio);
-		return;
-	}else if ( ret <= 0 ) {
-		nbio_del(t, &h->h_nbio);
-		return;
-	}
-
-	buf_done_read(h->h_dat, ret);
-	buf_read(h->h_dat, &rsz);
-	dprintf("Transmitted %u/%u bytes, %u left in file\n",
-		(size_t)ret, rsz, h->h_data_len);
-
-	if ( rsz + h->h_data_len == 0 ) {
-		buf_free_data(h->h_dat);
-		h->h_dat = NULL;
-
-		nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-		h->h_state = HTTP_CONN_REQUEST;
-		h->h_req = buf_alloc_req();
-		if ( NULL == h->h_req ) {
-			printf("OOM on res after data...\n");
-			nbio_del(t, &h->h_nbio);
-			return;
-		}
-		dprintf("DONE\n");
-		return;
-	}
-
-	buf_write(h->h_dat, &wsz);
-	if ( h->h_data_len > wsz ) {
-		dprintf("only %u bytes at end of buffer, resetting\n", wsz);
-		buf_reset(h->h_dat);
-	}
+	return 1;
 }
 
 static void http_write(struct iothread *t, struct nbio *n)
 {
 	struct http_conn *h;
+	int ret = 0;
+
 	h = (struct http_conn *)n;
 
 	switch(h->h_state) {
 	case HTTP_CONN_HEADER:
-		http_write_hdr(t, h);
+		ret = http_write_hdr(t, h);
 		break;
 	case HTTP_CONN_DATA:
-		http_write_data_sync(t, h);
+		ret = io_sync_write(t, h, webroot_fd);
 		break;
 	default:
 		dprintf("uh %u\n", h->h_state);
 		abort();
 	}
+
+	if ( !ret )
+		nbio_del(t, &h->h_nbio);
 }
 
 static int response_400(struct iothread *t, struct http_conn *h)
@@ -220,6 +156,7 @@ static int handle_get(struct iothread *t, struct http_conn *h,
 		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
 		search_uri.v_len--;
 
+	//printf("get %.*s\n", r->uri.v_len, r->uri.v_ptr);
 	n = webroot_find(&search_uri);
 	if ( NULL == n ) {
 		h->h_data_off = obj404_f_ofs;
@@ -234,11 +171,8 @@ static int handle_get(struct iothread *t, struct http_conn *h,
 	}
 
 	if ( h->h_data_len ) {
-		h->h_dat = buf_alloc_data();
-		if ( NULL == h->h_dat ) {
-			printf("OOM on res...\n");
+		if ( !io_sync_prep(t, h, webroot_fd) )
 			return 0;
-		}
 	}
 
 	ptr = buf_write(h->h_res, &sz);
@@ -285,6 +219,7 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 		nbio_del(t, &h->h_nbio);
 		return;
 	}else if ( vstrcmp_fast(&r.method, "GET") ) {
+		/* FIXME: bad request */
 		ret = response_400(t, h);
 	}else{
 		ret = handle_get(t, h, &r);

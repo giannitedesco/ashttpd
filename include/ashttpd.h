@@ -85,13 +85,14 @@ struct http_conn {
 	struct http_buf	*h_req;
 	struct http_buf	*h_res;
 	struct http_buf	*h_dat;
-#if 0
 	struct http_buf	*h_async;
-#endif
 
 	off_t		h_data_off;
 	size_t		h_data_len;
 };
+
+_private int io_sync_prep(struct iothread *t, struct http_conn *h, int fd);
+_private int io_sync_write(struct iothread *t, struct http_conn *h, int fd);
 
 #define HTTP_VER_UNKNOWN	0xff
 #define HTTP_VER_0_9		0x09
