@@ -10,6 +10,8 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
+static unsigned int concurrency;
+
 static hgang_t conns;
 static int rt_skip[BM_SKIP_LEN];
 static const uint8_t http_req_terminator[4] = "\r\n\r\n";
@@ -361,6 +363,7 @@ static void http_dtor(struct iothread *t, struct nbio *n)
 	buf_free_res(h->h_res);
 	buf_free_data(h->h_dat);
 	fd_close(h->h_nbio.fd);
+	--concurrency;
 }
 
 static const struct nbio_ops http_ops = {
@@ -391,5 +394,8 @@ void http_conn(struct iothread *t, int s, void *priv)
 	h->h_nbio.fd = s;
 	h->h_nbio.ops = &http_ops;
 	nbio_add(t, &h->h_nbio, NBIO_READ);
+	concurrency++;
+	if ( (concurrency % 1000) == 0 )
+		printf("concurrency %u\n", concurrency);
 	return;
 }
