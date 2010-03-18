@@ -114,7 +114,8 @@ int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 
 	dprintf("\n");
 
-	/* FIXME: MSG_MORE semantics */
+	if ( h->h_data_len )
+		flags |= MSG_MORE;
 	ptr = buf_read(h->h_dat, &sz);
 
 	if ( sz == 0 ) {
