@@ -129,11 +129,34 @@ class NameDB:
 		n = self.__names.keys()
 		n.sort()
 		return n.__iter__()
+	def __workset(self):
+		wsize = len(self.__names.keys())
+		print "Workset size %u"%wsize
+		dsize = len("%u"%(wsize - 1))
+
+		moduli = []
+		cur = 1
+		for m in xrange(dsize):
+			moduli.append(cur)
+			cur *= 10
+		moduli.reverse()
+			
+		n = 0
+		newmap = {}
+		for x in self.__names.keys():
+			p = '/' + ('/'.join("%u"%((n / moduli[i]) % 10)
+				for i in xrange(len(moduli)))) + '.html'
+			newmap[foostr(p)] = self.__names[x]
+			n += 1
+		self.__names = newmap
+
 	def write(self, obj_fn, ndb_fn):
 		self.__objects.write(obj_fn)
 
 		f = open(ndb_fn, 'w')
 		print "Writing name DB: %s"%ndb_fn
+
+		self.__workset()
 
 		mime = {}
 		for n in self:
