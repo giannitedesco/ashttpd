@@ -162,7 +162,9 @@ class NameDB:
 		if workset:
 			self.__workset()
 
-		mime = {}
+		o404 = self.__objects.get_404()
+
+		mime = {o404.mime_type: o404}
 		for n in self:
 			o = self.__names[n]
 			mime[o.mime_type] = None
@@ -180,7 +182,6 @@ class NameDB:
 		f.write("\tsize_t f_len;\n")
 		f.write("}webroot_namedb[] = {\n")
 
-		o404 = self.__objects.get_404()
 
 		for n in self:
 			o = self.__names[n]
@@ -233,4 +234,4 @@ if __name__ == '__main__':
 		path = uri.lstrip("/")
 		ndb[uri] = webmap(webroot, path)
 	
-	ndb.write("webroot.objdb", "webroot.h", workset = True)
+	ndb.write("webroot.objdb", "webroot.h", workset = False)
