@@ -1,8 +1,7 @@
 #include <ashttpd.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <assert.h>
-#include "webroot.h"
+#include <hgang.h>
 
 static hgang_t h_req;
 static hgang_t h_res;

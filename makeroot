@@ -175,12 +175,8 @@ class NameDB:
 			f.write("\t\"%s\",\n"%x)
 		f.write("};\n\n")
 
-		f.write("static const struct webroot_name {\n")
-		f.write("\tstruct ro_vec name;\n")
-		f.write("\tunsigned int mime_type;\n")
-		f.write("\toff_t f_ofs;\n")
-		f.write("\tsize_t f_len;\n")
-		f.write("}webroot_namedb[] = {\n")
+		f.write("static const struct webroot_name ")
+		f.write("webroot_namedb[] = {\n")
 
 
 		for n in self:
@@ -197,9 +193,9 @@ class NameDB:
 			f.write(" },\n")
 		f.write("};\n\n")
 
-		f.write("static const off_t obj404_f_ofs = %u;\n"%o404.fpos)
-		f.write("static const size_t obj404_f_len = %u;\n"%o404.flen)
-		f.write("static const unsigned int obj404_mime_type")
+		f.write("const off_t obj404_f_ofs = %u;\n"%o404.fpos)
+		f.write("const size_t obj404_f_len = %u;\n"%o404.flen)
+		f.write("const unsigned int obj404_mime_type")
 		f.write(" = %u;\n"%mimelist.index(o404.mime_type))
 
 def webmap(webroot, path):

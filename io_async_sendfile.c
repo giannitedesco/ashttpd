@@ -1,7 +1,9 @@
 #include <ashttpd.h>
+#include <sys/socket.h>
+#include <errno.h>
 #include <nbio-eventfd.h>
-#include <assert.h>
 #include "../libaio/src/libaio.h"
+#include <hgang.h>
 
 #if 0
 #define dprintf printf
@@ -102,7 +104,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 		handle_completion(t, ev[i].obj, ev[i].data, ev[i].res);
 }
 
-int io_async_sendfile_init(struct iothread *t)
+static int io_async_sendfile_init(struct iothread *t)
 {
 	memset(&aio_ctx, 0, sizeof(aio_ctx));
 	if ( io_queue_init(AIO_QUEUE_SIZE, &aio_ctx) ) {
@@ -121,14 +123,29 @@ int io_async_sendfile_init(struct iothread *t)
 	return 1;
 }
 
-int io_async_sendfile_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_sendfile_write(struct iothread *t,
+					struct http_conn *h, int fd)
 {
 	dprintf("aio_sendfile: socket went writable\n");
 	nbio_set_wait(t, &h->h_nbio, 0);
 	return aio_submit(t, h, fd);
 }
 
-int io_async_sendfile_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_sendfile_prep(struct iothread *t,
+					struct http_conn *h, int fd)
 {
 	return 1;
 }
+
+static void io_async_sendfile_fini(struct iothread *t)
+{
+}
+
+struct http_fio fio_async_sendfile = {
+	.label = "Kernel AIO sendfile",
+	.init = io_async_sendfile_init,
+	.prep = io_async_sendfile_prep,
+	.write = io_async_sendfile_write,
+	.webroot_fd = generic_webroot_fd,
+	.fini = io_async_sendfile_fini,
+};

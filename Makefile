@@ -5,7 +5,7 @@ AR = $(CROSS_COMPILE)ar
 EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
 CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
-HTTPD_OBJ = httpd.o http_conn.o http_parse.o http_buf.o \
+HTTPD_OBJ = httpd.o http_parse.o http_buf.o webroot.o \
 		io_sync.o io_async.o io_async_sendfile.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o nbio-eventfd.o \
@@ -31,7 +31,8 @@ all: dep $(BINS)
 dep: Make.dep
 
 Make.dep: Makefile *.c include/*.h
-	$(CC) $(CFLAGS) -MM $(patsubst %.o, %.c, $(ALL_OBJS)) > $@
+	$(CC) $(CFLAGS) -MM include/*.h *.h \
+		$(patsubst %.o, %.c, $(ALL_OBJS)) > $@
 
 %.o: Makefile %.c
 	$(CC) $(CFLAGS) -c -o $@ $(patsubst %.o, %.c, $@)
@@ -45,8 +46,8 @@ httpd: $(HTTPD_OBJ) $(HTTPD_SLIBS)
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJS) Make.dep
 
-root: webroot.objdb
-webroot.objdb: MANIFEST ROOT
+root: webroot.h
+webroot.h: makeroot MANIFEST ROOT
 	./makeroot `cat ROOT` < MANIFEST
 
 ifeq (Make.dep, $(wildcard Make.dep))

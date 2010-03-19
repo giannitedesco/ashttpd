@@ -1,4 +1,6 @@
 #include <ashttpd.h>
+#include <sys/socket.h>
+#include <errno.h>
 
 #if 0
 #define dprintf printf
@@ -6,12 +8,12 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
-int io_sync_init(struct iothread *t)
+static int io_sync_init(struct iothread *t)
 {
 	return 1;
 }
 
-int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
 {
 	int flags = MSG_NOSIGNAL;
 	const uint8_t *rptr;
@@ -73,7 +75,7 @@ int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
 	return 1;
 }
 
-int io_sync_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_sync_prep(struct iothread *t, struct http_conn *h, int fd)
 {
 	h->h_dat = buf_alloc_data();
 	if ( NULL == h->h_dat ) {
@@ -83,3 +85,16 @@ int io_sync_prep(struct iothread *t, struct http_conn *h, int fd)
 
 	return 1;
 }
+
+static void io_sync_fini(struct iothread *t)
+{
+}
+
+struct http_fio fio_sync = {
+	.label = "Traditional synchronous",
+	.init = io_sync_init,
+	.prep = io_sync_prep,
+	.write = io_sync_write,
+	.webroot_fd = generic_webroot_fd,
+	.fini = io_sync_fini,
+};

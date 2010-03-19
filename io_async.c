@@ -1,7 +1,9 @@
 #include <ashttpd.h>
+#include <sys/socket.h>
+#include <errno.h>
 #include <nbio-eventfd.h>
-#include <assert.h>
 #include "../libaio/src/libaio.h"
+#include <hgang.h>
 
 #if 0
 #define dprintf printf
@@ -89,7 +91,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 		handle_completion(t, ev[i].obj, ev[i].data, ev[i].res);
 }
 
-int io_async_init(struct iothread *t)
+static int io_async_init(struct iothread *t)
 {
 	memset(&aio_ctx, 0, sizeof(aio_ctx));
 	if ( io_queue_init(AIO_QUEUE_SIZE, &aio_ctx) ) {
@@ -108,7 +110,7 @@ int io_async_init(struct iothread *t)
 	return 1;
 }
 
-int io_async_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 {
 	int flags = MSG_NOSIGNAL;
 	const uint8_t *ptr;
@@ -160,7 +162,7 @@ int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 	return 1;
 }
 
-int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
 {
 	h->h_dat = buf_alloc_data();
 	dprintf("allocated buffer\n");
@@ -177,3 +179,17 @@ int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
 
 	return 1;
 }
+
+static void io_async_fini(struct iothread *t)
+{
+	/* fuck it */
+}
+
+struct http_fio fio_async = {
+	.label = "File AIO",
+	.init = io_async_init,
+	.prep = io_async_prep,
+	.write = io_async_write,
+	.webroot_fd = generic_webroot_fd,
+	.fini = io_async_fini,
+};
