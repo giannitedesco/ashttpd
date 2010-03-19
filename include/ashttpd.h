@@ -102,7 +102,7 @@ _private int io_async_sendfile_prep(struct iothread *t,
 _private int io_async_sendfile_write(struct iothread *t,
 					struct http_conn *h, int fd);
 #if 1
-#if 0
+#if 1
 #define _io_init	io_async_sendfile_init
 #define _io_prep	io_async_sendfile_prep
 #define _io_write	io_async_sendfile_write
