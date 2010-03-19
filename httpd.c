@@ -9,7 +9,11 @@ int main(int argc, char **argv)
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
 
-	io = listener_inet(SOCK_STREAM, IPPROTO_TCP, 0, 1234, http_conn, NULL);
+	io = listener_inet(SOCK_STREAM, IPPROTO_TCP,
+				0, 80, http_conn, NULL);
+	if ( NULL == io )
+		io = listener_inet(SOCK_STREAM, IPPROTO_TCP,
+				0, 1234, http_conn, NULL);
 	if ( NULL == io )
 		return EXIT_FAILURE;
 	listener_add(&iothread, io);
