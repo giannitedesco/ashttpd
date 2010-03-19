@@ -69,11 +69,6 @@ static int http_write_hdr(struct iothread *t, struct http_conn *h)
 			nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 			h->h_state = HTTP_CONN_REQUEST;
 			assert(NULL == h->h_dat);
-			h->h_req = buf_alloc_req();
-			if ( NULL == h->h_req ) {
-				printf("OOM on res after header...\n");
-				return 0;
-			}
 		}
 	}
 
@@ -255,6 +250,15 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 
 	assert(h->h_state == HTTP_CONN_REQUEST);
 
+	if ( NULL == h->h_req ) {
+		h->h_req = buf_alloc_req();
+		if ( NULL == h->h_req ) {
+			printf("OOM on res after header...\n");
+			nbio_del(t, &h->h_nbio);
+			return;
+		}
+	}
+
 	ptr = buf_write(h->h_req, &sz);
 	if ( 0 == sz ) {
 		printf("OOM on req...\n");
@@ -319,12 +323,6 @@ void http_conn(struct iothread *t, int s, void *priv)
 	}
 
 	h->h_state = HTTP_CONN_REQUEST;
-	h->h_req = buf_alloc_req();
-	if ( NULL == h->h_req ) {
-		printf("OOM on res on accept...\n");
-		fd_close(s);
-		return;
-	}
 
 	h->h_nbio.fd = s;
 	h->h_nbio.ops = &http_ops;

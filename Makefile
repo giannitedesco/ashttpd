@@ -6,7 +6,7 @@ EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
 CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
 HTTPD_OBJ = httpd.o http_conn.o http_parse.o http_buf.o \
-		io_sync.o io_async.o \
+		io_sync.o io_async.o io_async_sendfile.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o nbio-eventfd.o \
 		vec.o hgang.o os.o \

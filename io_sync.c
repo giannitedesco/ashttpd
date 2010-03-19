@@ -61,11 +61,6 @@ int io_sync_write(struct iothread *t, struct http_conn *h, int fd)
 
 		nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 		h->h_state = HTTP_CONN_REQUEST;
-		h->h_req = buf_alloc_req();
-		if ( NULL == h->h_req ) {
-			printf("OOM on res after data...\n");
-			return 0;
-		}
 		dprintf("DONE\n");
 	}else{
 		buf_write(h->h_dat, &wsz);

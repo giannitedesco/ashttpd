@@ -20,6 +20,7 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 	struct iocb *iocb;
 	uint8_t *ptr;
 	size_t sz;
+	int ret;
 
 	assert(h->h_data_len);
 
@@ -34,7 +35,9 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 	iocb->data = h;
 	io_set_eventfd(iocb, efd->fd);
 
-	if ( io_submit(aio_ctx, 1, &iocb) <= 0 ) {
+	ret = io_submit(aio_ctx, 1, &iocb);
+	if ( ret <= 0 ) {
+		errno = -ret;
 		fprintf(stderr, "io_submit: %s\n", os_err());
 		return 0;
 	}
@@ -152,11 +155,6 @@ int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 	h->h_dat = NULL;
 	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 	h->h_state = HTTP_CONN_REQUEST;
-	h->h_req = buf_alloc_req();
-	if ( NULL == h->h_req ) {
-		printf("OOM on res after async data...\n");
-		return 0;
-	}
 	dprintf("DONE\n");
 
 	return 1;

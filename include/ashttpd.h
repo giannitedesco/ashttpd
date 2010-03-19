@@ -96,10 +96,21 @@ _private int io_sync_write(struct iothread *t, struct http_conn *h, int fd);
 _private int io_async_init(struct iothread *t);
 _private int io_async_prep(struct iothread *t, struct http_conn *h, int fd);
 _private int io_async_write(struct iothread *t, struct http_conn *h, int fd);
+_private int io_async_sendfile_init(struct iothread *t);
+_private int io_async_sendfile_prep(struct iothread *t,
+					struct http_conn *h, int fd);
+_private int io_async_sendfile_write(struct iothread *t,
+					struct http_conn *h, int fd);
 #if 1
+#if 0
+#define _io_init	io_async_sendfile_init
+#define _io_prep	io_async_sendfile_prep
+#define _io_write	io_async_sendfile_write
+#else
 #define _io_init	io_async_init
 #define _io_prep	io_async_prep
 #define _io_write	io_async_write
+#endif
 #else
 #define _io_init	io_sync_init
 #define _io_prep	io_sync_prep
