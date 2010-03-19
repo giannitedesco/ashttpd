@@ -24,7 +24,7 @@ ALL_TARGETS = $(BINS)
 
 TARGET = all
 
-.PHONY: all clean dep
+.PHONY: all clean dep root
 
 all: dep $(BINS)
 
@@ -44,6 +44,10 @@ httpd: $(HTTPD_OBJ) $(HTTPD_SLIBS)
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJS) Make.dep
+
+root: webroot.objdb
+webroot.objdb: MANIFEST ROOT
+	./makeroot `cat ROOT` < MANIFEST
 
 ifeq (Make.dep, $(wildcard Make.dep))
 include Make.dep
