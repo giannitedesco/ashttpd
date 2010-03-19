@@ -25,6 +25,9 @@ static struct http_buf *do_alloc(hgang_t alloc)
 	if ( NULL == b )
 		return NULL;
 
+	if ( NULL == alloc )
+		return b;
+
 	b->b_base = hgang_alloc(alloc);
 	if ( NULL == b->b_base ) {
 		hgang_return(h_buf, b);
@@ -41,9 +44,20 @@ static struct http_buf *do_alloc(hgang_t alloc)
 static void do_free(hgang_t alloc, struct http_buf *b)
 {
 	if ( b ) {
-		hgang_return(alloc, b->b_base);
+		if ( alloc )
+			hgang_return(alloc, b->b_base);
 		hgang_return(h_buf, b);
 	}
+}
+
+struct http_buf *buf_alloc_naked(void)
+{
+	return do_alloc(NULL);
+}
+
+void buf_free_naked(struct http_buf *b)
+{
+	return do_free(NULL, b);
 }
 
 struct http_buf *buf_alloc_req(void)

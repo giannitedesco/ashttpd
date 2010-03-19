@@ -63,7 +63,6 @@ static int http_write_hdr(struct iothread *t, struct http_conn *h)
 		}else{
 			nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 			h->h_state = HTTP_CONN_REQUEST;
-			assert(NULL == h->h_dat);
 		}
 	}
 
@@ -270,7 +269,7 @@ static void http_dtor(struct iothread *t, struct nbio *n)
 	dprintf("Connection killed\n");
 	buf_free_req(h->h_req);
 	buf_free_res(h->h_res);
-	buf_free_data(h->h_dat);
+	_io_abort(h);
 	fd_close(h->h_nbio.fd);
 	--concurrency;
 }
@@ -310,9 +309,25 @@ static struct http_fio *io_model(const char *name)
 		char * const n;
 		struct http_fio *fio;
 	}ionames[]={
+		/* traditional pread based */
 		{"sync", &fio_sync},
+
+		/* Kernel AIO on regular file, not currently
+		 * supported in linux 2.6 so falls back to synchronous
+		 */
 		{"aio", &fio_async},
 		{"async", &fio_async},
+
+		/* Kernel AIO on O_DIRECT file descriptor, re-implementing
+		 * page cache in userspace fucking alice in wonderland
+		 */
+		{"dasync", &fio_dasync},
+		{"direct", &fio_dasync},
+		{"dio", &fio_dasync},
+
+		/* Kernel based AIO / sendfile utilizing kernel pipe
+		 * buffers and splicing... experimental
+		 */
 		{"aio-sendfile", &fio_async_sendfile},
 		{"async-sendfile", &fio_async_sendfile},
 	};
@@ -364,7 +379,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	listener_add(&iothread, io);
 
-	if ( !_io_init(&iothread) ) {
+	if ( !_io_init(&iothread, webroot_fd) ) {
 		return EXIT_FAILURE;
 	}
 

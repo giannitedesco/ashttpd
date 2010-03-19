@@ -106,17 +106,23 @@ void nbio_pump(struct iothread *t, int mto)
 			if ( NBIO_DELETED == n->mask )
 				break;
 
+			/* write first since it could free up some
+			 * resources in a  tight squeeze
+			 */
+			if ( (n->flags & n->mask) & NBIO_WRITE )
+				n->ops->write(t, n);
+			if ( (n->flags & n->mask) & NBIO_READ )
+				n->ops->read(t, n);
+
+			/* let read/write have a chance to determine
+			 * exact nature of the error
+			 */
 			if ( n->flags & NBIO_ERROR ) {
 				n->mask = NBIO_DELETED;
 				n->flags = 0;
 				list_move_tail(&n->list, &t->deleted);
 				continue;
 			}
-
-			if ( (n->flags & n->mask) & NBIO_READ )
-				n->ops->read(t, n);
-			if ( (n->flags & n->mask) & NBIO_WRITE )
-				n->ops->write(t, n);
 		}
 	}
 
@@ -129,17 +135,13 @@ void nbio_pump(struct iothread *t, int mto)
 		t->plugin->pump(t, mto);
 }
 
-void nbio_add(struct iothread *t, struct nbio *n, unsigned short wait)
-{
-	INIT_LIST_HEAD(&n->list);
-	nbio_set_wait(t, n, wait);
-}
-
 void nbio_del(struct iothread *t, struct nbio *n)
 {
 	t->plugin->active(t, n);
 	n->mask = NBIO_DELETED;
 	n->flags = 0;
+
+	/* sneaky: will also remove from any waitqueues */
 	list_move_tail(&n->list, &t->deleted);
 }
 
@@ -149,7 +151,8 @@ void nbio_inactive(struct iothread *t, struct nbio *n)
 	t->plugin->inactive(t, n);
 }
 
-void nbio_set_wait(struct iothread *t, struct nbio *io, unsigned short wait)
+static void do_set_wait(struct iothread *t, struct nbio *io,
+			unsigned short wait, struct list_head *q)
 {
 	assert(io->mask != NBIO_DELETED);
 	wait &= NBIO_WAIT;
@@ -161,15 +164,38 @@ void nbio_set_wait(struct iothread *t, struct nbio *io, unsigned short wait)
 		 * any events on the FD for now (useful if we cant do anything
 		 * with it until another pending i/o has completed)
 		 */
-		list_move_tail(&io->list, &t->inactive);
+		if ( NULL == q )
+			q = &t->inactive;
+		list_move_tail(&io->list, q);
 	}else{
 		list_move_tail(&io->list, &t->active);
 	}
 }
 
+void nbio_set_wait(struct iothread *t, struct nbio *io, unsigned short wait)
+{
+	do_set_wait(t, io, wait, NULL);
+}
+
+void nbio_to_waitq(struct iothread *t, struct nbio *io, struct list_head *q)
+{
+	do_set_wait(t, io, 0, q);
+}
+
+void nbio_wake(struct iothread *t, struct nbio *io, unsigned short wait)
+{
+	do_set_wait(t, io, wait, NULL);
+}
+
 unsigned short nbio_get_wait(struct nbio *io)
 {
 	return io->mask & NBIO_WAIT;
+}
+
+void nbio_add(struct iothread *t, struct nbio *n, unsigned short wait)
+{
+	INIT_LIST_HEAD(&n->list);
+	do_set_wait(t, n, wait, NULL);
 }
 
 static void __attribute__((constructor)) _ctor(void)

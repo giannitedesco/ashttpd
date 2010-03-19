@@ -8,7 +8,7 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
-static int io_sync_init(struct iothread *t)
+static int io_sync_init(struct iothread *t, int webroot_fd)
 {
 	return 1;
 }
@@ -79,11 +79,16 @@ static int io_sync_prep(struct iothread *t, struct http_conn *h, int fd)
 {
 	h->h_dat = buf_alloc_data();
 	if ( NULL == h->h_dat ) {
-		printf("OOM on res...\n");
+		printf("OOM on data...\n");
 		return 0;
 	}
 
 	return 1;
+}
+
+static void io_sync_abort(struct http_conn *h)
+{
+	buf_free_data(h->h_dat);
 }
 
 static void io_sync_fini(struct iothread *t)
@@ -95,6 +100,7 @@ struct http_fio fio_sync = {
 	.init = io_sync_init,
 	.prep = io_sync_prep,
 	.write = io_sync_write,
+	.abort = io_sync_abort,
 	.webroot_fd = generic_webroot_fd,
 	.fini = io_sync_fini,
 };

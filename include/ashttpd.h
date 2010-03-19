@@ -51,6 +51,9 @@ struct http_buf {
 	uint8_t		*b_write;
 };
 
+_private struct http_buf *buf_alloc_naked(void);
+_private void buf_free_naked(struct http_buf *b);
+
 _private struct http_buf *buf_alloc_req(void);
 _private void buf_free_req(struct http_buf *b);
 
@@ -86,10 +89,11 @@ struct http_conn {
 
 struct http_fio {
 	const char *label;
-	int (*init)(struct iothread *t);
 	int (*prep)(struct iothread *t, struct http_conn *h, int fd);
 	int (*write)(struct iothread *t, struct http_conn *h, int fd);
+	void (*abort)(struct http_conn *h);
 	int (*webroot_fd)(const char *fn);
+	int (*init)(struct iothread *t, int fd);
 	void (*fini)(struct iothread *t);
 };
 
@@ -103,6 +107,7 @@ _private extern struct http_fio *fio_current;
 #define _io_prep	(*fio_current->prep)
 #define _io_write	(*fio_current->write)
 #define _io_webroot_fd	(*fio_current->webroot_fd)
+#define _io_abort	(*fio_current->abort)
 #define _io_fini	(*fio_current->fini)
 
 struct webroot_name {

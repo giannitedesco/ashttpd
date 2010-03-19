@@ -91,7 +91,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 		handle_completion(t, ev[i].obj, ev[i].data, ev[i].res);
 }
 
-static int io_async_init(struct iothread *t)
+static int io_async_init(struct iothread *t, int webroot_fd)
 {
 	memset(&aio_ctx, 0, sizeof(aio_ctx));
 	if ( io_queue_init(AIO_QUEUE_SIZE, &aio_ctx) ) {
@@ -167,7 +167,7 @@ static int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
 	h->h_dat = buf_alloc_data();
 	dprintf("allocated buffer\n");
 	if ( NULL == h->h_dat ) {
-		printf("OOM on res...\n");
+		printf("OOM on data...\n");
 		return 0;
 	}
 
@@ -180,6 +180,11 @@ static int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
 	return 1;
 }
 
+static void io_async_abort(struct http_conn *h)
+{
+	buf_free_data(h->h_dat);
+}
+
 static void io_async_fini(struct iothread *t)
 {
 	/* fuck it */
@@ -187,9 +192,10 @@ static void io_async_fini(struct iothread *t)
 
 struct http_fio fio_async = {
 	.label = "File AIO",
-	.init = io_async_init,
 	.prep = io_async_prep,
 	.write = io_async_write,
+	.abort = io_async_abort,
 	.webroot_fd = generic_webroot_fd,
+	.init = io_async_init,
 	.fini = io_async_fini,
 };
