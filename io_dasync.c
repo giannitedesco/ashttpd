@@ -17,13 +17,13 @@
 #define PAGE_SIZE	(1U<<12U)
 #define PAGE_MASK	(PAGE_SIZE - 1U)
 
-#define EXTRA_SHIFT	1U
+#define EXTRA_SHIFT	1U /* danger will robinson */
 
 #define CHUNK_SHIFT	(PAGE_SHIFT + EXTRA_SHIFT)
 #define CHUNK_SIZE	(1U << CHUNK_SHIFT)
 #define CHUNK_MASK	(CHUNK_SIZE - 1U)
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -44,7 +44,18 @@ static unsigned in_flight;
  * an empty freelist and empty lru list means no more buffer space.
  */
 struct cache {
+	uint8_t canary1[1024];
+#if USE_RBTREE
 	struct rb_node		c_rbt;
+#else
+	struct list_head	c_list;
+#endif
+#define STATE_FREE		0
+#define STATE_ALLOC_LIMBO	1
+#define STATE_IO_IN_FLIGHT	2
+#define STATE_LRU		3
+#define STATE_PINNED		4
+	unsigned int		c_state;
 	union {
 		struct list_head	cu_free;
 		struct diocb		*cu_pending;
@@ -52,6 +63,7 @@ struct cache {
 	}c_u;
 	size_t			c_num;
 	int			c_ref;
+	uint8_t canary2[1024];
 };
 
 struct diocb {
@@ -63,7 +75,11 @@ struct diocb {
 static struct cache *cache_chunks;
 static LIST_HEAD(lru);
 static LIST_HEAD(freelist);
+#if USE_RBTREE
 struct rbtree cache;
+#else
+static LIST_HEAD(cache);
+#endif
 static uint8_t *cache_base;
 static unsigned cache_nr_chunks;
 static off_t off_end;
@@ -152,6 +168,7 @@ static int init_cache(int fd)
 
 static size_t chunk_num(struct http_conn *h)
 {
+	assert(h->h_data_off < off_end);
 	return (size_t)(h->h_data_off >> CHUNK_SHIFT);
 }
 
@@ -161,6 +178,10 @@ static uint8_t *cache2ptr(struct cache *c)
 	assert(c >= cache_chunks);
 	assert(c < cache_chunks + cache_nr_chunks);
 	idx = c - cache_chunks;
+	printf("cache2ptr: %u: %p + 0x%x = %p\n", idx,
+		cache_base, (idx << CHUNK_SHIFT),
+		cache_base + (idx << CHUNK_SHIFT));
+	//assert(c == ptr2cache(cache_base + (idx << CHUNK_SHIFT)));
 	return cache_base + (idx << CHUNK_SHIFT);
 }
 
@@ -170,12 +191,22 @@ static struct cache *ptr2cache(uint8_t *ptr)
 	assert(ptr >= cache_base);
 	assert(ptr <= cache_base + off_end);
 	idx = (ptr - cache_base) >> CHUNK_SHIFT;
+	assert(idx < cache_nr_chunks);
+	//assert(((cache2ptr(cache_chunks + idx) - cache_base) >> CHUNK_SHIFT)
+	//	== (ptr - cache_base) >> CHUNK_SHIFT);
 	return cache_chunks + idx;
 }
 
 static void cache_free(struct cache *c)
 {
 	assert(c->c_ref == 0);
+	assert(c->c_state == STATE_ALLOC_LIMBO);
+	c->c_state = STATE_FREE;
+#if USE_RBTREE
+	rbtree_delete_node(&cache, &c->c_rbt);
+#else
+	list_del(&c->c_list);
+#endif
 	list_add(&c->c_u.cu_free, &freelist);
 	dprintf("dio: cache to freelist: %p\n", c);
 }
@@ -185,13 +216,20 @@ static void cache_get(struct cache *c)
 	c->c_ref++;
 	assert(c->c_ref);
 	switch(c->c_ref) {
+	case 0:
+		assert(c->c_state == STATE_ALLOC_LIMBO);
+		break;
 	case 1:
 		dprintf("dio: cache to lru: %p\n", c);
+		assert(c->c_state == STATE_IO_IN_FLIGHT);
+		c->c_state = STATE_LRU;
 		INIT_LIST_HEAD(&c->c_u.cu_lru);
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 2:
 		dprintf("dio: cache from lru: %p\n", c);
+		assert(c->c_state == STATE_LRU);
+		c->c_state = STATE_PINNED;
 		list_del(&c->c_u.cu_lru);
 		break;
 	default:
@@ -207,11 +245,15 @@ static void cache_put(struct cache *c)
 	case 1:
 		dprintf("dio: cache to lru: %p\n", c);
 		INIT_LIST_HEAD(&c->c_u.cu_lru);
+		assert(c->c_state == STATE_PINNED);
+		c->c_state = STATE_LRU;
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 0:
-		rbtree_delete_node(&cache, &c->c_rbt);
+		dprintf("dio: cache from lru: %p\n", c);
 		list_del(&c->c_u.cu_lru);
+		assert(c->c_state == STATE_LRU);
+		c->c_state = STATE_ALLOC_LIMBO;
 		cache_free(c);
 		break;
 	default:
@@ -230,13 +272,18 @@ static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
 	if ( NULL == buf )
 		return NULL;
 
+	printf("%u == %u\n", chunk_num(h), c->c_num);
+	assert(chunk_num(h) == c->c_num);
+
 	c_base = c->c_num << CHUNK_SHIFT;
 	baseptr = cache2ptr(c);
 
 	assert(h->h_data_off >= c_base);
 	ofs = h->h_data_off - c_base;
+	assert(ofs < CHUNK_SIZE);
 	sz = ((ofs + h->h_data_len) < CHUNK_SIZE) ?
-		h->h_data_len : CHUNK_SIZE - ofs;
+		h->h_data_len : (CHUNK_SIZE - ofs);
+	assert(ofs + sz <= CHUNK_SIZE);
 
 	buf->b_read = buf->b_base = baseptr + ofs;
 	buf->b_end = buf->b_write = baseptr + ofs + sz;
@@ -249,12 +296,16 @@ static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
 static int cache_lookup(struct iothread *t, struct http_conn *h)
 {
 	struct cache *c;
+#if !USE_RBTREE
+	struct cache *tmp;
+#endif
 	size_t key;
 
 	key = chunk_num(h);
 	dprintf("dio: cache_lookup: data_off=%llx chunk_off=%llx key=%u\n",
 		h->h_data_off, (off_t)key << CHUNK_SHIFT, key);
 
+#if USE_RBTREE
 	for(c = (struct cache *)cache.rbt_root; c; ) {
 		if ( key == c->c_num )
 			break;
@@ -264,13 +315,26 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 			c = (struct cache *)c->c_rbt.rb_child[CHILD_RIGHT];
 		}
 	}
+#else
+	c = NULL;
+	list_for_each_entry(tmp, &cache, c_list) {
+		if ( key == tmp->c_num ) {
+			c = tmp;
+			break;
+		}
+	}
+#endif
 
 	if ( NULL == c )
 		return 0;
 
 	if ( c->c_ref ) {
+		assert(c->c_state == STATE_PINNED || c->c_state == STATE_LRU);
 		dprintf("cache hit\n");
+		assert(NULL == h->h_dat);
+		assert(chunk_num(h) == c->c_num);
 		h->h_dat = cache2buf(c, h);
+		assert(c->c_state == STATE_PINNED);
 		if ( NULL == h->h_dat ) {
 			nbio_del(t, &h->h_nbio);
 			return 1;
@@ -278,6 +342,8 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 		return 1;
 	}
 
+	assert(c->c_state == STATE_IO_IN_FLIGHT);
+	assert(chunk_num(h) == c->c_num);
 	dprintf("cache hit (pending)\n");
 	nbio_to_waitq(t, &h->h_nbio, &c->c_u.cu_pending->waitq);
 
@@ -287,7 +353,11 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 static void buf_put(struct http_buf *buf)
 {
 	struct cache *c;
+	if ( NULL == buf )
+		return;
 	c = ptr2cache(buf->b_base);
+	printf("state is %u\n", c->c_state);
+	assert(c->c_state == STATE_PINNED);
 	cache_put(c);
 	buf_free_naked(buf);
 }
@@ -296,12 +366,11 @@ static void lru_reaper(void)
 {
 	struct cache *c, *tmp;
 
-	if ( list_empty(&lru) )
-		return;
-
 	list_for_each_entry_safe(c, tmp, &lru, c_u.cu_lru) {
 		assert(c->c_ref == 1);
+		assert(c->c_state == STATE_LRU);
 		cache_put(c);
+		assert(c->c_state == STATE_FREE);
 		dprintf("dio: reaped %p\n", c);
 		/* lets not kill our cache in one fell swoop */
 		break;
@@ -310,8 +379,10 @@ static void lru_reaper(void)
 
 static void cache_insert(struct cache *c)
 {
+#if USE_RBTREE
 	struct rb_node *n, *parent, **p;
 
+	assert(c->c_state == STATE_ALLOC_LIMBO);
 	for(p = &cache.rbt_root, n = parent = NULL; *p; ) {
 		struct cache *node;
 
@@ -329,6 +400,9 @@ static void cache_insert(struct cache *c)
 	c->c_rbt.rb_parent = parent;
 	*p = &c->c_rbt;
 	rbtree_insert_rebalance(&cache, &c->c_rbt);
+#else
+	list_add(&c->c_list, &cache);
+#endif
 }
 
 static struct cache *cache_alloc(size_t key)
@@ -342,8 +416,9 @@ static struct cache *cache_alloc(size_t key)
 	}
 
 	c = list_entry(freelist.next, struct cache, c_u.cu_free);
+	assert(c->c_state == STATE_FREE);
 	list_del(&c->c_u.cu_free);
-	memset(c, 0, sizeof(*c));
+	c->c_state = STATE_ALLOC_LIMBO;
 	c->c_num = key;
 
 	cache_insert(c);
@@ -360,8 +435,7 @@ static void diocb_prep(struct cache *c, struct iocb *iocb, int fd)
 
 	off = c->c_num << CHUNK_SHIFT;
 	base = cache2ptr(c);
-	sz = ((off + CHUNK_SIZE) > off_end) ?
-		off_end - off : CHUNK_SIZE;
+	sz = ((off + CHUNK_SIZE) > off_end) ? (off_end - off) : CHUNK_SIZE;
 
 	io_prep_pread(iocb, fd, base, sz, off);
 	io_set_eventfd(iocb, efd->fd);
@@ -382,32 +456,39 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 
 	c = cache_alloc(chunk_num(h));
 	if ( NULL == c ) {
-		dprintf("dio: cache OOM\n");
+		printf("dio: cache OOM\n");
 		return 0;
 	}
 
 	iocb = hgang_alloc0(aio_iocbs);
 	if ( NULL == iocb ) {
-		dprintf("dio: iocb OOM\n");
+		printf("dio: iocb OOM\n");
 		cache_free(c);
 		return 0;
 	}
 
 	c->c_u.cu_pending = iocb;
 
-	INIT_LIST_HEAD(&iocb->waitq);
-	nbio_to_waitq(t, &h->h_nbio, &iocb->waitq);
-
 	diocb_prep(c, &iocb->iocb, fd);
 	iocb->iocb.data = c;
+	INIT_LIST_HEAD(&iocb->waitq);
+	nbio_to_waitq(t, &h->h_nbio, &iocb->waitq);
 
 	ret = io_submit(aio_ctx, 1, (struct iocb **)&iocb);
 	if ( ret <= 0 ) {
 		errno = -ret;
+		/* FIXME: kill one on waitq */
+		cache_free(c);
+		hgang_return(aio_iocbs, iocb);
 		fprintf(stderr, "io_submit: %s\n", os_err());
+		abort();
 		return 0;
 	}
 
+	printf("State is %u\n", c->c_state);
+	assert(c->c_state == STATE_ALLOC_LIMBO);
+	assert(chunk_num(h) == c->c_num);
+	c->c_state = STATE_IO_IN_FLIGHT;
 	in_flight++;
 	return 1;
 }
@@ -417,6 +498,9 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 {
 	struct http_conn *h, *tmp;
 
+	c = iocb->iocb.data;
+	//assert(iocb->cache == iocb->iocb.data);
+	//assert(c == iocb->iocb.data);
 	hgang_return(aio_iocbs, iocb);
 
 	if ( ret <= 0 ) {
@@ -424,6 +508,7 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 		errno = -ret;
 		fprintf(stderr, "aio_pread: %s\n", os_err());
 		hgang_return(aio_iocbs, iocb);
+		abort();
 		return;
 	}
 
@@ -431,10 +516,14 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 	 * as above, loop on wait queue and kill everything
 	 */
 
+	printf("state is %u\n", c->c_state);
+	assert(c->c_state == STATE_IO_IN_FLIGHT);
 	c->c_u.cu_pending = NULL;
 	cache_get(c);
+	assert(c->c_state == STATE_LRU);
 
 	list_for_each_entry_safe(h, tmp, &iocb->waitq, h_nbio.list) {
+		assert(NULL == h->h_dat);
 		h->h_dat = cache2buf(c, h);
 		if ( NULL == h->h_dat ) {
 			nbio_del(t, &h->h_nbio);
@@ -454,16 +543,17 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 	struct timespec tmo;
 	int ret, i;
 
-	memset(&tmo, 0, sizeof(tmo));
-
 	dprintf("aio_event ready, %llx/%u in flight\n", val, in_flight);
+	assert(in_flight);
 
+	memset(&tmo, 0, sizeof(tmo));
 	ret = io_getevents(aio_ctx, 1, in_flight, ev, &tmo);
 	if ( ret < 0 ) {
 		errno = -ret;
 		fprintf(stderr, "io_getevents: %s\n", os_err());
 		return;
 	}
+	assert((size_t)ret <= in_flight);
 
 	in_flight -= ret;
 	dprintf("got %u events, %u still in flight\n", ret, in_flight);
@@ -560,7 +650,7 @@ static int io_dasync_prep(struct iothread *t, struct http_conn *h, int fd)
 
 static void io_dasync_abort(struct http_conn *h)
 {
-	buf_free_naked(h->h_dat);
+	buf_put(h->h_dat);
 }
 
 static void io_dasync_fini(struct iothread *t)
