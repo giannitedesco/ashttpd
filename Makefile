@@ -10,7 +10,7 @@ HTTPD_OBJ = httpd.o http_parse.o http_buf.o webroot.o \
 		nbio.o nbio-epoll.o nbio-poll.o \
 		nbio-listener.o nbio-eventfd.o \
 		vec.o hgang.o os.o \
-		boyer-moore.o
+		boyer-moore.o rbtree.o
 HTTPD_SLIBS = ../libaio/src/libaio.a
 HTTPD_LIBS = 
 

@@ -145,26 +145,14 @@ static int init_cache(int fd)
 
 	for(i = 0; i < cache_nr_chunks; i++)
 		list_add_tail(&cache_chunks[i].c_u.cu_free, &freelist);
-	printf("dio: %u cache chunk descriptors on free list\n", i);
+	printf("dio: %u x %u byte cache chunk descriptors on free list\n",
+		cache_nr_chunks, sizeof(struct cache));
 	return 1;
 }
 
 static size_t chunk_num(struct http_conn *h)
 {
 	return (size_t)(h->h_data_off >> CHUNK_SHIFT);
-}
-
-static int cache_lookup(struct iothread *t, struct http_conn *h)
-{
-	size_t idx;
-
-	idx = chunk_num(h);
-	dprintf("dio: cache_lookup: data_off=%llx chunk_off=%llx idx=%u\n",
-		h->h_data_off, (off_t)idx << CHUNK_SHIFT, idx);
-
-	dprintf("TODO: lookup\n");
-
-	return 0;
 }
 
 static uint8_t *cache2ptr(struct cache *c)
@@ -204,7 +192,7 @@ static void new_refcnt(struct cache *c)
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 0:
-		dprintf("TODO: Remove from tree\n");
+		rbtree_delete_node(&cache, &c->c_rbt);
 		list_del(&c->c_u.cu_lru);
 		cache_free(c);
 		break;
@@ -229,6 +217,65 @@ static void cache_put(struct cache *c)
 	new_refcnt(c);
 }
 
+static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
+{
+	uint8_t *baseptr;
+	off_t c_base;
+	struct http_buf *buf;
+	size_t ofs, sz;
+
+	buf = buf_alloc_naked();
+	if ( NULL == buf )
+		return NULL;
+
+	c_base = c->c_num << CHUNK_SHIFT;
+	baseptr = cache2ptr(c);
+
+	assert(h->h_data_off >= c_base);
+	ofs = h->h_data_off - c_base;
+	sz = ((ofs + h->h_data_len) < CHUNK_SIZE) ?
+		h->h_data_len : CHUNK_SIZE - ofs;
+
+	buf->b_read = buf->b_base = baseptr + ofs;
+	buf->b_end = buf->b_write = baseptr + ofs + sz;
+
+	cache_get(c);
+	dprintf("buffer: %u bytes at ofs %x\n", sz, ofs);
+	return buf;
+}
+
+static int cache_lookup(struct iothread *t, struct http_conn *h)
+{
+	struct cache *c;
+	size_t key;
+
+	key = chunk_num(h);
+	dprintf("dio: cache_lookup: data_off=%llx chunk_off=%llx key=%u\n",
+		h->h_data_off, (off_t)key << CHUNK_SHIFT, key);
+
+	for(c = (struct cache *)cache.rbt_root; c; ) {
+		if ( key == c->c_num )
+			break;
+		if ( key < c->c_num ) {
+			c = (struct cache *)c->c_rbt.rb_child[CHILD_LEFT];
+		}else{
+			c = (struct cache *)c->c_rbt.rb_child[CHILD_RIGHT];
+		}
+	}
+
+	if ( NULL == c )
+		return 0;
+
+	dprintf("cache hit\n");
+	h->h_dat = cache2buf(c, h);
+	if ( NULL == h->h_dat ) {
+		nbio_del(t, &h->h_nbio);
+		return 1;
+	}
+
+	return 1;
+}
+
 static void buf_put(struct http_buf *buf)
 {
 	struct cache *c;
@@ -243,12 +290,37 @@ static void lru_reaper(void)
 
 	if ( list_empty(&lru) )
 		return;
-	
+
 	list_for_each_entry_safe(c, tmp, &lru, c_u.cu_lru) {
 		assert(c->c_ref == 1);
 		cache_put(c);
 		dprintf("dio: reaped %p\n", c);
+		/* lets not kill our cache in one fell swoop */
+		break;
 	}
+}
+
+static void cache_insert(struct cache *c)
+{
+	struct rb_node *n, *parent, **p;
+
+	for(p = &cache.rbt_root, n = parent = NULL; *p; ) {
+		struct cache *node;
+
+		parent = *p;
+
+		node = (struct cache *)parent;
+		assert(node->c_num != c->c_num);
+		if ( c->c_num < node->c_num ) {
+			p = &(*p)->rb_child[CHILD_LEFT];
+		}else{
+			p = &(*p)->rb_child[CHILD_RIGHT];
+		}
+	}
+
+	c->c_rbt.rb_parent = parent;
+	*p = &c->c_rbt;
+	rbtree_insert_rebalance(&cache, &c->c_rbt);
 }
 
 static struct cache *cache_alloc(size_t key)
@@ -263,10 +335,10 @@ static struct cache *cache_alloc(size_t key)
 
 	c = list_entry(freelist.next, struct cache, c_u.cu_free);
 	list_del(&c->c_u.cu_free);
+	memset(c, 0, sizeof(*c));
 	c->c_num = key;
-	c->c_ref = 0;
 
-	dprintf("TODO: Insert in tree\n");
+	cache_insert(c);
 
 	dprintf("dio: cache_alloc: %p\n", c);
 	return c;
@@ -336,8 +408,6 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 				struct cache *c, int ret)
 {
 	struct http_conn *h, *tmp;
-	uint8_t *baseptr;
-	off_t c_base;
 
 	hgang_return(aio_iocbs, iocb);
 
@@ -356,31 +426,13 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 	c->c_u.cu_pending = NULL;
 	cache_get(c);
 
-	c_base = c->c_num << CHUNK_SHIFT;
-	baseptr = cache2ptr(c);
-
 	list_for_each_entry_safe(h, tmp, &iocb->waitq, h_nbio.list) {
-		struct http_buf *buf;
-		size_t ofs, sz;
-
-		buf = buf_alloc_naked();
-		if ( NULL == buf ) {
+		h->h_dat = cache2buf(c, h);
+		if ( NULL == h->h_dat ) {
 			nbio_del(t, &h->h_nbio);
 			continue;
 		}
 
-		/* set up buffer */
-		assert(h->h_data_off >= c_base);
-		ofs = h->h_data_off - c_base;
-		sz = ((ofs + h->h_data_len) < CHUNK_SIZE) ?
-			h->h_data_len : CHUNK_SIZE - ofs;
-
-		buf->b_read = buf->b_base = baseptr + ofs;
-		buf->b_end = buf->b_write = baseptr + ofs + sz;
-
-		h->h_dat = buf;
-		cache_get(c);
-		dprintf("buffer: %u bytes at ofs %x\n", sz, ofs);
 		nbio_wake(t, &h->h_nbio, NBIO_WRITE);
 	}
 
@@ -450,7 +502,7 @@ static int io_dasync_write(struct iothread *t, struct http_conn *h, int fd)
 	dprintf("\n");
 	ptr = buf_read(h->h_dat, &sz);
 
-	if ( h->h_data_len )
+	if ( h->h_data_len > sz )
 		flags |= MSG_MORE;
 
 	ret = send(h->h_nbio.fd, ptr, sz, flags);
