@@ -180,15 +180,33 @@ static void cache_free(struct cache *c)
 	dprintf("dio: cache to freelist: %p\n", c);
 }
 
-static void new_refcnt(struct cache *c)
+static void cache_get(struct cache *c)
 {
+	c->c_ref++;
+	assert(c->c_ref);
 	switch(c->c_ref) {
+	case 1:
+		dprintf("dio: cache to lru: %p\n", c);
+		INIT_LIST_HEAD(&c->c_u.cu_lru);
+		list_add_tail(&c->c_u.cu_lru, &lru);
+		break;
 	case 2:
 		dprintf("dio: cache from lru: %p\n", c);
 		list_del(&c->c_u.cu_lru);
 		break;
+	default:
+		break;
+	}
+}
+
+static void cache_put(struct cache *c)
+{
+	assert(c->c_ref);
+	--c->c_ref;
+	switch(c->c_ref) {
 	case 1:
 		dprintf("dio: cache to lru: %p\n", c);
+		INIT_LIST_HEAD(&c->c_u.cu_lru);
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 0:
@@ -199,22 +217,6 @@ static void new_refcnt(struct cache *c)
 	default:
 		break;
 	}
-}
-
-static void cache_get(struct cache *c)
-{
-	if ( c->c_ref == 0 )
-		INIT_LIST_HEAD(&c->c_u.cu_lru);
-	c->c_ref++;
-	assert(c->c_ref);
-	new_refcnt(c);
-}
-
-static void cache_put(struct cache *c)
-{
-	assert(c->c_ref);
-	--c->c_ref;
-	new_refcnt(c);
 }
 
 static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
@@ -266,12 +268,18 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 	if ( NULL == c )
 		return 0;
 
-	dprintf("cache hit\n");
-	h->h_dat = cache2buf(c, h);
-	if ( NULL == h->h_dat ) {
-		nbio_del(t, &h->h_nbio);
+	if ( c->c_ref ) {
+		dprintf("cache hit\n");
+		h->h_dat = cache2buf(c, h);
+		if ( NULL == h->h_dat ) {
+			nbio_del(t, &h->h_nbio);
+			return 1;
+		}
 		return 1;
 	}
+
+	dprintf("cache hit (pending)\n");
+	nbio_to_waitq(t, &h->h_nbio, &c->c_u.cu_pending->waitq);
 
 	return 1;
 }
@@ -436,6 +444,7 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 		nbio_wake(t, &h->h_nbio, NBIO_WRITE);
 	}
 
+	assert(list_empty(&iocb->waitq));
 	hgang_return(aio_iocbs, iocb);
 }
 
