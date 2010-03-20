@@ -215,8 +215,7 @@ void hgang_return(hgang_t h, void *obj)
 {
 	if ( unlikely(obj == NULL) )
 		return;
-	if ( unlikely(h->obj_size < sizeof(void *)) )
-		return;
+	assert(h->obj_size >= sizeof(void *));
 	POISON(obj, h->obj_size);
 	*(void **)obj = h->free;
 	h->free = obj;
