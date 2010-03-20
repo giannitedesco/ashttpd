@@ -475,11 +475,15 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 
 static int io_dasync_init(struct iothread *t, int webroot_fd)
 {
+	int ret;
+
 	if ( !init_cache(webroot_fd) )
 		return 0;
 
 	memset(&aio_ctx, 0, sizeof(aio_ctx));
-	if ( io_queue_init(AIO_QUEUE_SIZE, &aio_ctx) ) {
+	ret = io_queue_init(AIO_QUEUE_SIZE, &aio_ctx);
+	if ( ret < 0 ) {
+		errno = -ret;
 		fprintf(stderr, "io_queue_init: %s\n", os_err());
 		return 0;
 	}
