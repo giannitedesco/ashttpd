@@ -113,6 +113,14 @@ class ObjectStore:
 
 		return ret
 
+	def __dio_align(self, f):
+		fd = f.fileno()
+		st = os.fstat(fd)
+		tail = f.tell() % st.st_blksize
+		pad = st.st_blksize - tail
+		print "blksize=%u tail=%u pad=%u"%(st.st_blksize, tail, pad)
+		os.ftruncate(fd, st.st_size + pad)
+
 	def write(self, fn):
 		obj = self.__obj_db.values()
 		obj.sort()
@@ -120,6 +128,7 @@ class ObjectStore:
 		print "Writing object DB: %s"%fn
 		for o in obj:
 			o.to_file(f)
+		self.__dio_align(f)
 		return
 
 class NameDB:
