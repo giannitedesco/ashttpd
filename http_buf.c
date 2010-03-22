@@ -84,7 +84,7 @@ void buf_free_res(struct http_buf *b)
 
 struct http_buf *buf_alloc_data(void)
 {
-	return do_alloc(h_res);
+	return do_alloc(h_dat);
 }
 
 void buf_free_data(struct http_buf *b)
