@@ -23,7 +23,7 @@
 #define CHUNK_SIZE	(1U << CHUNK_SHIFT)
 #define CHUNK_MASK	(CHUNK_SIZE - 1U)
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -44,18 +44,7 @@ static unsigned in_flight;
  * an empty freelist and empty lru list means no more buffer space.
  */
 struct cache {
-	uint8_t canary1[1024];
-#if USE_RBTREE
 	struct rb_node		c_rbt;
-#else
-	struct list_head	c_list;
-#endif
-#define STATE_FREE		0
-#define STATE_ALLOC_LIMBO	1
-#define STATE_IO_IN_FLIGHT	2
-#define STATE_LRU		3
-#define STATE_PINNED		4
-	unsigned int		c_state;
 	union {
 		struct list_head	cu_free;
 		struct diocb		*cu_pending;
@@ -63,7 +52,6 @@ struct cache {
 	}c_u;
 	size_t			c_num;
 	int			c_ref;
-	uint8_t canary2[1024];
 };
 
 struct diocb {
@@ -75,11 +63,7 @@ struct diocb {
 static struct cache *cache_chunks;
 static LIST_HEAD(lru);
 static LIST_HEAD(freelist);
-#if USE_RBTREE
-struct rbtree cache;
-#else
-static LIST_HEAD(cache);
-#endif
+static struct rbtree cache;
 static uint8_t *cache_base;
 static unsigned cache_nr_chunks;
 static off_t off_end;
@@ -178,10 +162,7 @@ static uint8_t *cache2ptr(struct cache *c)
 	assert(c >= cache_chunks);
 	assert(c < cache_chunks + cache_nr_chunks);
 	idx = c - cache_chunks;
-	printf("cache2ptr: %u: %p + 0x%x = %p\n", idx,
-		cache_base, (idx << CHUNK_SHIFT),
-		cache_base + (idx << CHUNK_SHIFT));
-	//assert(c == ptr2cache(cache_base + (idx << CHUNK_SHIFT)));
+	assert(idx < cache_nr_chunks);
 	return cache_base + (idx << CHUNK_SHIFT);
 }
 
@@ -192,23 +173,18 @@ static struct cache *ptr2cache(uint8_t *ptr)
 	assert(ptr <= cache_base + off_end);
 	idx = (ptr - cache_base) >> CHUNK_SHIFT;
 	assert(idx < cache_nr_chunks);
-	//assert(((cache2ptr(cache_chunks + idx) - cache_base) >> CHUNK_SHIFT)
-	//	== (ptr - cache_base) >> CHUNK_SHIFT);
 	return cache_chunks + idx;
 }
 
 static void cache_free(struct cache *c)
 {
-	assert(c->c_ref == 0);
-	assert(c->c_state == STATE_ALLOC_LIMBO);
-	c->c_state = STATE_FREE;
-#if USE_RBTREE
-	rbtree_delete_node(&cache, &c->c_rbt);
-#else
-	list_del(&c->c_list);
-#endif
-	list_add(&c->c_u.cu_free, &freelist);
 	dprintf("dio: cache to freelist: %p\n", c);
+	assert(c->c_ref == 0);
+	/* rbtree_delete_rebalance() is b0rk? */
+	abort();
+	rbtree_delete_node(&cache, &c->c_rbt);
+	memset(c, 0, sizeof(*c));
+	list_add(&c->c_u.cu_free, &freelist);
 }
 
 static void cache_get(struct cache *c)
@@ -217,22 +193,17 @@ static void cache_get(struct cache *c)
 	assert(c->c_ref);
 	switch(c->c_ref) {
 	case 0:
-		assert(c->c_state == STATE_ALLOC_LIMBO);
 		break;
 	case 1:
 		dprintf("dio: cache to lru: %p\n", c);
-		assert(c->c_state == STATE_IO_IN_FLIGHT);
-		c->c_state = STATE_LRU;
-		INIT_LIST_HEAD(&c->c_u.cu_lru);
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 2:
 		dprintf("dio: cache from lru: %p\n", c);
-		assert(c->c_state == STATE_LRU);
-		c->c_state = STATE_PINNED;
 		list_del(&c->c_u.cu_lru);
 		break;
 	default:
+		dprintf("dio: cache_get: %p %u\n", c, c->c_ref);
 		break;
 	}
 }
@@ -244,19 +215,15 @@ static void cache_put(struct cache *c)
 	switch(c->c_ref) {
 	case 1:
 		dprintf("dio: cache to lru: %p\n", c);
-		INIT_LIST_HEAD(&c->c_u.cu_lru);
-		assert(c->c_state == STATE_PINNED);
-		c->c_state = STATE_LRU;
 		list_add_tail(&c->c_u.cu_lru, &lru);
 		break;
 	case 0:
 		dprintf("dio: cache from lru: %p\n", c);
 		list_del(&c->c_u.cu_lru);
-		assert(c->c_state == STATE_LRU);
-		c->c_state = STATE_ALLOC_LIMBO;
 		cache_free(c);
 		break;
 	default:
+		dprintf("dio: cache_put: %p %u\n", c, c->c_ref);
 		break;
 	}
 }
@@ -272,7 +239,6 @@ static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
 	if ( NULL == buf )
 		return NULL;
 
-	printf("%u == %u\n", chunk_num(h), c->c_num);
 	assert(chunk_num(h) == c->c_num);
 
 	c_base = c->c_num << CHUNK_SHIFT;
@@ -296,16 +262,12 @@ static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
 static int cache_lookup(struct iothread *t, struct http_conn *h)
 {
 	struct cache *c;
-#if !USE_RBTREE
-	struct cache *tmp;
-#endif
 	size_t key;
 
 	key = chunk_num(h);
 	dprintf("dio: cache_lookup: data_off=%llx chunk_off=%llx key=%u\n",
 		h->h_data_off, (off_t)key << CHUNK_SHIFT, key);
 
-#if USE_RBTREE
 	for(c = (struct cache *)cache.rbt_root; c; ) {
 		if ( key == c->c_num )
 			break;
@@ -315,26 +277,17 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 			c = (struct cache *)c->c_rbt.rb_child[CHILD_RIGHT];
 		}
 	}
-#else
-	c = NULL;
-	list_for_each_entry(tmp, &cache, c_list) {
-		if ( key == tmp->c_num ) {
-			c = tmp;
-			break;
-		}
-	}
-#endif
 
-	if ( NULL == c )
+	if ( NULL == c ) {
+		dprintf("cache miss\n");
 		return 0;
+	}
 
 	if ( c->c_ref ) {
-		assert(c->c_state == STATE_PINNED || c->c_state == STATE_LRU);
 		dprintf("cache hit\n");
 		assert(NULL == h->h_dat);
 		assert(chunk_num(h) == c->c_num);
 		h->h_dat = cache2buf(c, h);
-		assert(c->c_state == STATE_PINNED);
 		if ( NULL == h->h_dat ) {
 			nbio_del(t, &h->h_nbio);
 			return 1;
@@ -342,7 +295,6 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 		return 1;
 	}
 
-	assert(c->c_state == STATE_IO_IN_FLIGHT);
 	assert(chunk_num(h) == c->c_num);
 	dprintf("cache hit (pending)\n");
 	nbio_to_waitq(t, &h->h_nbio, &c->c_u.cu_pending->waitq);
@@ -356,8 +308,6 @@ static void buf_put(struct http_buf *buf)
 	if ( NULL == buf )
 		return;
 	c = ptr2cache(buf->b_base);
-	printf("state is %u\n", c->c_state);
-	assert(c->c_state == STATE_PINNED);
 	cache_put(c);
 	buf_free_naked(buf);
 }
@@ -367,11 +317,9 @@ static void lru_reaper(void)
 	struct cache *c, *tmp;
 
 	list_for_each_entry_safe(c, tmp, &lru, c_u.cu_lru) {
+		dprintf("dio: reaping %p\n", c);
 		assert(c->c_ref == 1);
-		assert(c->c_state == STATE_LRU);
 		cache_put(c);
-		assert(c->c_state == STATE_FREE);
-		dprintf("dio: reaped %p\n", c);
 		/* lets not kill our cache in one fell swoop */
 		break;
 	}
@@ -379,10 +327,8 @@ static void lru_reaper(void)
 
 static void cache_insert(struct cache *c)
 {
-#if USE_RBTREE
 	struct rb_node *n, *parent, **p;
 
-	assert(c->c_state == STATE_ALLOC_LIMBO);
 	for(p = &cache.rbt_root, n = parent = NULL; *p; ) {
 		struct cache *node;
 
@@ -400,9 +346,6 @@ static void cache_insert(struct cache *c)
 	c->c_rbt.rb_parent = parent;
 	*p = &c->c_rbt;
 	rbtree_insert_rebalance(&cache, &c->c_rbt);
-#else
-	list_add(&c->c_list, &cache);
-#endif
 }
 
 static struct cache *cache_alloc(size_t key)
@@ -416,14 +359,13 @@ static struct cache *cache_alloc(size_t key)
 	}
 
 	c = list_entry(freelist.next, struct cache, c_u.cu_free);
-	assert(c->c_state == STATE_FREE);
+	dprintf("dio: cache_alloc: %p\n", c);
 	list_del(&c->c_u.cu_free);
-	c->c_state = STATE_ALLOC_LIMBO;
+	memset(c, 0, sizeof(*c));
 	c->c_num = key;
 
 	cache_insert(c);
 
-	dprintf("dio: cache_alloc: %p\n", c);
 	return c;
 }
 
@@ -485,10 +427,7 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 		return 0;
 	}
 
-	printf("State is %u\n", c->c_state);
-	assert(c->c_state == STATE_ALLOC_LIMBO);
 	assert(chunk_num(h) == c->c_num);
-	c->c_state = STATE_IO_IN_FLIGHT;
 	in_flight++;
 	return 1;
 }
@@ -498,10 +437,7 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 {
 	struct http_conn *h, *tmp;
 
-	c = iocb->iocb.data;
-	//assert(iocb->cache == iocb->iocb.data);
-	//assert(c == iocb->iocb.data);
-	hgang_return(aio_iocbs, iocb);
+	assert(c == iocb->iocb.data);
 
 	if ( ret <= 0 ) {
 		/* FIXME: loop on wait queue and kill everything */
@@ -516,11 +452,8 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 	 * as above, loop on wait queue and kill everything
 	 */
 
-	printf("state is %u\n", c->c_state);
-	assert(c->c_state == STATE_IO_IN_FLIGHT);
 	c->c_u.cu_pending = NULL;
 	cache_get(c);
-	assert(c->c_state == STATE_LRU);
 
 	list_for_each_entry_safe(h, tmp, &iocb->waitq, h_nbio.list) {
 		assert(NULL == h->h_dat);
@@ -543,8 +476,11 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 	struct timespec tmo;
 	int ret, i;
 
+	/* Spurious eventfd wakeup */
+	if ( !in_flight )
+		return;
+
 	dprintf("aio_event ready, %llx/%u in flight\n", val, in_flight);
-	assert(in_flight);
 
 	memset(&tmo, 0, sizeof(tmo));
 	ret = io_getevents(aio_ctx, 1, in_flight, ev, &tmo);
