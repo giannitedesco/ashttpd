@@ -584,7 +584,8 @@ static int io_dasync_write(struct iothread *t, http_conn_t h)
 	assert(io_state == IO_STATE_COMPLETED);
 	ptr = buf_read(data_buf, &sz);
 
-	if ( http_conn_data(h, NULL, NULL) )
+	data_len = http_conn_data(h, NULL, NULL);
+	if ( data_len > sz )
 		flags |= MSG_MORE;
 
 	ret = send(http_conn_socket(h), ptr, sz, flags);
@@ -598,6 +599,7 @@ static int io_dasync_write(struct iothread *t, http_conn_t h)
 
 	dprintf("Transmitted %u\n", (size_t)ret);
 	sz = buf_done_read(data_buf, ret);
+	data_len = http_conn_data_read(h, ret);
 	if ( sz ) {
 		dprintf("Partial transmit: %u bytes left\n", sz);
 		return 1;
@@ -606,7 +608,6 @@ static int io_dasync_write(struct iothread *t, http_conn_t h)
 	buf_put(data_buf);
 	http_conn_set_priv(h, NULL, IO_STATE_IDLE);
 
-	data_len = http_conn_data_read(h, ret);
 	if ( data_len ) {
 		dprintf("Submit more, %u bytes left\n", data_len);
 		return aio_submit(t, h);
