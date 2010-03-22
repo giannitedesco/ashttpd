@@ -73,8 +73,6 @@ static void epoll_inactive(struct iothread *t, struct nbio *n)
 	if ( n->ev_priv.poll == 1 )
 		return;
 
-	n->ev_priv.poll = 1;
-
 	memset(&ev, 0, sizeof(ev));
 	ev.events = EPOLLERR|EPOLLHUP|EPOLLET;
 	ev.data.ptr = n;
@@ -84,7 +82,12 @@ static void epoll_inactive(struct iothread *t, struct nbio *n)
 	if ( n->mask & NBIO_WRITE )
 		ev.events |= EPOLLOUT;
 
-	epoll_ctl(t->priv.epoll, EPOLL_CTL_ADD, n->fd, &ev);
+	/* Eeek */
+	if ( epoll_ctl(t->priv.epoll, EPOLL_CTL_ADD, n->fd, &ev) )
+		return;
+
+	n->ev_priv.poll = 1;
+
 }
 
 static struct eventloop eventloop_epoll = {
