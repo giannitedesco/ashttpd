@@ -227,8 +227,12 @@ def webmap(webroot, path):
 	return ret
 
 if __name__ == '__main__':
+	ws = False
+
 	if len(argv) > 1:
 		webroot = argv[1]
+		if len(argv) > 2:
+			ws = argv[2].lower() in ["ws", "workset", "wset"]
 	else:
 		webroot = '.'
 	print "Webroot is %s"%webroot
@@ -239,4 +243,4 @@ if __name__ == '__main__':
 		path = uri.lstrip("/")
 		ndb[uri] = webmap(webroot, path)
 	
-	ndb.write("webroot.objdb", "webroot.h", workset = False)
+	ndb.write("webroot.objdb", "webroot.h", ws)
