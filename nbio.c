@@ -131,6 +131,9 @@ void nbio_pump(struct iothread *t, int mto)
 		d->ops->dtor(t, d);
 	}
 
+	list_for_each_entry_safe(n, tmp, &t->inactive, list)
+		t->plugin->inactive(t, n);
+
 	if ( !list_empty(&t->inactive) )
 		t->plugin->pump(t, mto);
 }

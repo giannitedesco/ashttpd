@@ -6,15 +6,18 @@
  * Linux epoll based eventloop
  */
 
-#include <compiler.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <list.h>
-#include <nbio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/epoll.h>
+#include <stdio.h>
+
+#include <compiler.h>
+#include <nbio.h>
+#include <os.h>
 
 static int epoll_init(struct iothread *t)
 {
@@ -34,6 +37,8 @@ static void epoll_active(struct iothread *t, struct nbio *n)
 {
 	if ( n->ev_priv.poll == 0 )
 		return;
+	if ( n->fd < 0 )
+		return;
 
 	n->ev_priv.poll = 0;
 	epoll_ctl(t->priv.epoll, EPOLL_CTL_DEL, n->fd, NULL);
@@ -45,12 +50,14 @@ static void epoll_pump(struct iothread *t, int mto)
 	struct nbio *n;
 	int nfd, i;
 
-	list_for_each_entry(n, &t->active, list)
-		epoll_active(t, n);
-
+again:
 	nfd = epoll_wait(t->priv.epoll, ev, sizeof(ev)/sizeof(*ev), mto);
-	if ( nfd < 0 )
+	if ( nfd < 0 ) {
+		if ( errno == EINTR )
+			goto again;
+		fprintf(stderr, "epoll_wait: %s\n", os_err());
 		return;
+	}
 
 	for(i=0; i < nfd; i++) {
 		n = ev[i].data.ptr;

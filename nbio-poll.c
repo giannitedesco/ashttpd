@@ -107,10 +107,9 @@ static void poll_inactive(struct iothread *t, struct nbio *n)
 	struct poll_priv *p = t->priv.ptr;
 	struct pollfd *pfd;
 
-	if ( p->num_pfd >= p->max_pfd ) {
-		if ( !upsize_pfdset(p) )
-			return;
-	}
+	/* EEK */
+	if ( p->num_pfd >= p->max_pfd &&  !upsize_pfdset(p) )
+		return;
 
 	pfd = &p->pfd[p->num_pfd];
 	pfd->fd = n->fd;
