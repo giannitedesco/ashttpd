@@ -5,7 +5,9 @@ AR = $(CROSS_COMPILE)ar
 EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
 CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
-
+HTTPD_BIN = httpd
+HTTPD_SLIBS = ../libaio/src/libaio.a
+HTTPD_LIBS = 
 HTTPD_OBJ = httpd.o \
 		http_parse.o \
 		http_buf.o \
@@ -25,14 +27,24 @@ HTTPD_OBJ = httpd.o \
 		hgang.o \
 		vec.o \
 		os.o
-HTTPD_SLIBS = ../libaio/src/libaio.a
-HTTPD_LIBS = 
 
 #MAKEROOT_OBJ = makeroot.o skunk_make.o hgang.o fobuf.o os.o
 #MAKEROOT_SLIBS =
 #MAKEROOT_LIBS =
 
-BINS = httpd
+HTTPRAPE_BIN = httprape
+HTTPRAPE_SLIBS =
+HTTPRAPE_LIBS = 
+HTTPRAPE_OBJ = httprape.o \
+		nbio.o \
+		nbio-epoll.o \
+		nbio-poll.o \
+		nbio-connecter.o \
+		hgang.o \
+		vec.o \
+		os.o
+
+BINS = $(HTTPD_BIN) $(HTTPRAPE_BIN)
 ALL_OBJS = $(HTTPD_OBJ)
 ALL_TARGETS = $(BINS)
 
@@ -51,8 +63,11 @@ Make.dep: Makefile *.c include/*.h
 %.o: Makefile %.c
 	$(CC) $(CFLAGS) -c -o $@ $(patsubst %.o, %.c, $@)
 
-httpd: $(HTTPD_OBJ) $(HTTPD_SLIBS)
+$(HTTPD_BIN): $(HTTPD_OBJ) $(HTTPD_SLIBS)
 	$(CC) $(HTTPD_LIBS) $(CFLAGS) -o $@ $^
+
+$(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
+	$(CC) $(HTTPRAPE_LIBS) $(CFLAGS) -o $@ $^
 
 #makeroot: $(MAKEROOT_OBJ) $(MAKEROOT_SLIBS)
 #	$(CC) $(MAKEROOT_LIBS) $(CFLAGS) -o $@ $^
