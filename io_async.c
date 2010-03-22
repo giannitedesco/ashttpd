@@ -45,6 +45,7 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 	}
 
 	dprintf("io_submit: pread: %u bytes\n", sz);
+	nbio_set_wait(t, &h->h_nbio, 0);
 	in_flight++;
 	return 1;
 }
@@ -52,7 +53,8 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 static void handle_completion(struct iothread *t, struct iocb *iocb,
 				struct http_conn *h, int ret)
 {
-	assert(h->h_state == HTTP_CONN_DATA);
+	/* AIO read may run in parallel with transmission of header */
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
 
 	hgang_return(aio_iocbs, iocb);
 	in_flight--;
@@ -65,10 +67,7 @@ static void handle_completion(struct iothread *t, struct iocb *iocb,
 	}
 
 	buf_done_write(h->h_dat, ret);
-	h->h_data_off += (size_t)ret;
-	h->h_data_len -= (size_t)ret;
-
-	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
+	nbio_wake(t, &h->h_nbio, NBIO_WRITE);
 }
 
 static void aio_event(struct iothread *t, void *priv, eventfd_t val)
@@ -76,6 +75,10 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 	struct io_event ev[in_flight];
 	struct timespec tmo;
 	int ret, i;
+
+	/* Spurious eventfd wakeup */
+	if ( !in_flight )
+		return;
 
 	memset(&tmo, 0, sizeof(tmo));
 
@@ -126,14 +129,8 @@ static int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 
 	if ( h->h_data_len )
 		flags |= MSG_MORE;
+
 	ptr = buf_read(h->h_dat, &sz);
-
-	if ( sz == 0 ) {
-		dprintf("Async read not finished, sleeeeep....\n");
-		nbio_set_wait(t, &h->h_nbio, 0);
-		return 1;
-	}
-
 	ret = send(h->h_nbio.fd, ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
 		nbio_inactive(t, &h->h_nbio);
@@ -151,6 +148,8 @@ static int io_async_write(struct iothread *t, struct http_conn *h, int fd)
 		return 1;
 	}
 
+	h->h_data_off += (size_t)ret;
+	h->h_data_len -= (size_t)ret;
 
 	if ( h->h_data_len ) {
 		dprintf("Submit more, %u bytes left\n", h->h_data_len);
