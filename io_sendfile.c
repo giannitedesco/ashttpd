@@ -1,7 +1,11 @@
-#include <ashttpd.h>
 #include <sys/socket.h>
 #include <sys/sendfile.h>
 #include <errno.h>
+
+#include <ashttpd.h>
+#include <ashttpd-conn.h>
+#include <ashttpd-fio.h>
+#include <ashttpd-buf.h>
 
 #if 0
 #define dprintf printf
@@ -14,35 +18,39 @@ static int io_sendfile_init(struct iothread *t, int webroot_fd)
 	return 1;
 }
 
-static int io_sendfile_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_sendfile_write(struct iothread *t, http_conn_t h)
 {
 	ssize_t ret;
-	off_t off = h->h_data_off;
+	size_t len;
+	off_t off;
+	int fd;
 
-	ret = sendfile(h->h_nbio.fd, fd, &off, h->h_data_len);
+	len = http_conn_data(h, &fd, &off);
+
+	/* let's try to be fair */
+	if ( len > 8192 )
+		len = 8192;
+
+	ret = sendfile(http_conn_socket(h), fd, &off, len);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &h->h_nbio);
+		http_conn_inactive(t, h);
 		return 1;
 	}else if ( ret <= 0 ) {
 		return 0;
 	}
 
-	h->h_data_off += (size_t)ret;
-	h->h_data_len -= (size_t)ret;
-	if ( 0 == h->h_data_len ) {
-		nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-		h->h_state = HTTP_CONN_REQUEST;
-	}
+	if ( !http_conn_data_read(h, ret) )
+		http_conn_data_complete(t, h);
 
 	return 1;
 }
 
-static int io_sendfile_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_sendfile_prep(struct iothread *t, http_conn_t h)
 {
 	return 1;
 }
 
-static void io_sendfile_abort(struct http_conn *h)
+static void io_sendfile_abort(http_conn_t h)
 {
 }
 

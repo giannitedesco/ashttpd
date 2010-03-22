@@ -1,12 +1,34 @@
-#include <ashttpd.h>
-#include <nbio-listener.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#include <ashttpd.h>
+#include <nbio-listener.h>
+#include <ashttpd-conn.h>
+#include <ashttpd-buf.h>
+#include <ashttpd-fio.h>
 #include <hgang.h>
+
+#define HTTP_CONN_REQUEST	0
+/* FIXME: gobble any POST data */
+#define HTTP_CONN_HEADER	1
+#define HTTP_CONN_DATA		2
+#define HTTP_CONN_DEAD		3
+struct _http_conn {
+	struct nbio	h_nbio;
+	unsigned short	h_state;
+	unsigned short	h_io_state;
+
+	struct http_buf	*h_req;
+	struct http_buf	*h_res;
+
+	void 		*h_io_priv;
+	off_t		h_data_off;
+	size_t		h_data_len;
+};
 
 #if 0
 #define dprintf printf
@@ -14,8 +36,8 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
+static struct http_fio *fio_current;
 static unsigned int concurrency;
-struct http_fio *fio_current;
 static hgang_t conns;
 static int rt_skip[BM_SKIP_LEN];
 static const uint8_t http_req_terminator[4] = "\r\n\r\n";
@@ -29,7 +51,136 @@ static const char * const resp400 =
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>Bad Request</body></html>";
 
-static int http_write_hdr(struct iothread *t, struct http_conn *h)
+#define _io_init	(*fio_current->init)
+#define _io_prep	(*fio_current->prep)
+#define _io_write	(*fio_current->write)
+#define _io_webroot_fd	(*fio_current->webroot_fd)
+#define _io_abort	(*fio_current->abort)
+#define _io_fini	(*fio_current->fini)
+
+static void http_kill(struct iothread *t, struct _http_conn *h)
+{
+	dprintf("Connection killed\n");
+	fd_close(h->h_nbio.fd);
+	h->h_nbio.fd = -1;
+	assert(concurrency);
+	--concurrency;
+
+	switch(h->h_state) {
+	case HTTP_CONN_REQUEST:
+		buf_free_req(h->h_req);
+		assert(h->h_res == NULL);
+		break;
+	case HTTP_CONN_HEADER:
+		assert(h->h_req == NULL);
+		buf_free_res(h->h_res);
+		/* fall through */
+	case HTTP_CONN_DATA:
+		_io_abort(h);
+		break;
+	default:
+		abort();
+	}
+
+	h->h_state = HTTP_CONN_DEAD;
+	nbio_del(t, &h->h_nbio);
+}
+
+size_t http_conn_data(http_conn_t h, int *fd, off_t *off)
+{
+	/* AIO read may run in parallel with transmission of header */
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+
+	if ( fd )
+		*fd = webroot_fd;
+	if ( off )
+		*off = h->h_data_off;
+	return h->h_data_len;
+}
+
+size_t http_conn_data_read(http_conn_t h, size_t len)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	assert(len <= h->h_data_len);
+	h->h_data_len -= len;
+	h->h_data_off += len;
+	return h->h_data_len;
+}
+
+void http_conn_data_complete(struct iothread *t, http_conn_t h)
+{
+	assert(h->h_state == HTTP_CONN_DATA);
+	assert(0 == h->h_data_len);
+	h->h_state = HTTP_CONN_REQUEST;
+	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
+}
+
+void http_conn_abort(struct iothread *t, http_conn_t h)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	http_kill(t, h);
+}
+
+void *http_conn_get_priv(http_conn_t h, unsigned short *state)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	if ( state )
+		*state = h->h_io_state;
+	return h->h_io_priv;
+}
+
+void http_conn_set_priv(http_conn_t h, void *priv, unsigned short state)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	h->h_io_state = state;
+	h->h_io_priv = priv;
+}
+
+int http_conn_socket(http_conn_t h)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	return h->h_nbio.fd;
+}
+
+void http_conn_inactive(struct iothread *t, http_conn_t h)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	nbio_inactive(t, &h->h_nbio);
+}
+
+void http_conn_wait_on(struct iothread *t, http_conn_t h, unsigned short w)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	nbio_wait_on(t, &h->h_nbio, w);
+}
+
+void http_conn_to_waitq(struct iothread *t, http_conn_t h, struct list_head *wq)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	nbio_to_waitq(t, &h->h_nbio, wq);
+}
+
+void http_conn_wake_one(struct iothread *t, http_conn_t h)
+{
+	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	nbio_wake(t, &h->h_nbio, NBIO_WRITE);
+}
+
+void http_conn_wake(struct iothread *t, struct list_head *waitq,
+			void(*wake_func)(struct iothread *, http_conn_t))
+{
+	struct _http_conn *h, *tmp;
+	list_for_each_entry_safe(h, tmp, waitq, h_nbio.list) {
+		assert(h->h_state == HTTP_CONN_DATA ||
+			h->h_state == HTTP_CONN_HEADER);
+		/* Do the nbio wake first incase caller decides to
+		 * delete conn */
+		nbio_wake(t, &h->h_nbio, NBIO_WRITE);
+		(*wake_func)(t, h);
+	}
+}
+
+static int http_write_hdr(struct iothread *t, struct _http_conn *h)
 {
 	const uint8_t *ptr;
 	size_t sz;
@@ -71,17 +222,17 @@ static int http_write_hdr(struct iothread *t, struct http_conn *h)
 
 static void http_write(struct iothread *t, struct nbio *n)
 {
-	struct http_conn *h;
+	struct _http_conn *h;
 	int ret = 0;
 
-	h = (struct http_conn *)n;
+	h = (struct _http_conn *)n;
 
 	switch(h->h_state) {
 	case HTTP_CONN_HEADER:
 		ret = http_write_hdr(t, h);
 		break;
 	case HTTP_CONN_DATA:
-		ret = _io_write(t, h, webroot_fd);
+		ret = _io_write(t, h);
 		break;
 	default:
 		dprintf("uh %u\n", h->h_state);
@@ -89,10 +240,10 @@ static void http_write(struct iothread *t, struct nbio *n)
 	}
 
 	if ( !ret )
-		nbio_del(t, &h->h_nbio);
+		http_kill(t, h);
 }
 
-static int response_400(struct iothread *t, struct http_conn *h)
+static int response_400(struct iothread *t, struct _http_conn *h)
 {
 	uint8_t *ptr;
 	size_t sz;
@@ -106,7 +257,7 @@ static int response_400(struct iothread *t, struct http_conn *h)
 	return 1;
 }
 
-static int handle_get(struct iothread *t, struct http_conn *h,
+static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r)
 {
 	const struct webroot_name *n;
@@ -135,8 +286,10 @@ static int handle_get(struct iothread *t, struct http_conn *h,
 	}
 
 	if ( h->h_data_len ) {
-		if ( !_io_prep(t, h, webroot_fd) )
+		if ( !_io_prep(t, h) ) {
+			/* FIXME: insufficient resources http code */
 			return 0;
+		}
 	}
 
 	ptr = buf_write(h->h_res, &sz);
@@ -161,7 +314,7 @@ static int handle_get(struct iothread *t, struct http_conn *h,
 	return 1;
 }
 
-static void handle_request(struct iothread *t, struct http_conn *h)
+static void handle_request(struct iothread *t, struct _http_conn *h)
 {
 	struct http_request r;
 	size_t hlen, sz;
@@ -173,6 +326,11 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 	memset(&r, 0, sizeof(r));
 	ptr = buf_read(h->h_req, &sz);
 	hlen = http_req(&r, ptr, sz);
+	if ( 0 == hlen ) {
+		/* FIXME: error 400 */
+		http_kill(t, h);
+		return;
+	}
 
 	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
 	h->h_state = HTTP_CONN_HEADER;
@@ -180,7 +338,7 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 
 	if ( NULL == h->h_res ) {
 		printf("OOM on res...\n");
-		nbio_del(t, &h->h_nbio);
+		http_kill(t, h);
 		return;
 	}else if ( vstrcmp_fast(&r.method, "GET") ) {
 		/* FIXME: bad request */
@@ -190,7 +348,7 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 	}
 
 	if ( !ret ) {
-		nbio_del(t, &h->h_nbio);
+		http_kill(t, h);
 		return;
 	}
 
@@ -210,12 +368,12 @@ static void handle_request(struct iothread *t, struct http_conn *h)
 static void http_read(struct iothread *t, struct nbio *nbio)
 {
 	const uint8_t *hs, *n;
-	struct http_conn *h;
+	struct _http_conn *h;
 	uint8_t *ptr;
 	ssize_t ret;
 	size_t sz;
 
-	h = (struct http_conn *)nbio;
+	h = (struct _http_conn *)nbio;
 
 	assert(h->h_state == HTTP_CONN_REQUEST);
 
@@ -223,7 +381,7 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 		h->h_req = buf_alloc_req();
 		if ( NULL == h->h_req ) {
 			printf("OOM on res after header...\n");
-			nbio_del(t, &h->h_nbio);
+			http_kill(t, h);
 			return;
 		}
 	}
@@ -231,7 +389,7 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 	ptr = buf_write(h->h_req, &sz);
 	if ( 0 == sz ) {
 		printf("OOM on req...\n");
-		nbio_del(t, nbio);
+		http_kill(t, h);
 		return;
 	}
 
@@ -240,7 +398,7 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 		nbio_inactive(t, nbio);
 		return;
 	}else if ( ret <= 0 ) {
-		nbio_del(t, nbio);
+		http_kill(t, h);
 		return;
 	}
 
@@ -264,14 +422,8 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 
 static void http_dtor(struct iothread *t, struct nbio *n)
 {
-	struct http_conn *h;
-	h = (struct http_conn *)n;
-	dprintf("Connection killed\n");
-	buf_free_req(h->h_req);
-	buf_free_res(h->h_res);
-	_io_abort(h);
-	fd_close(h->h_nbio.fd);
-	--concurrency;
+	struct _http_conn *h = (struct _http_conn *)n;
+	assert(h->h_state = HTTP_CONN_DEAD);
 }
 
 static const struct nbio_ops http_ops = {
@@ -282,7 +434,7 @@ static const struct nbio_ops http_ops = {
 
 static void http_conn(struct iothread *t, int s, void *priv)
 {
-	struct http_conn *h;
+	struct _http_conn *h;
 
 	h = hgang_alloc0(conns);
 	if ( NULL == h ) {
@@ -362,7 +514,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	conns = hgang_new(sizeof(struct http_conn), 0);
+	conns = hgang_new(sizeof(struct _http_conn), 0);
 	if ( NULL == conns ) {
 		fprintf(stderr, "conns: %s\n", os_err());
 		return EXIT_FAILURE;

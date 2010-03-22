@@ -1,27 +1,35 @@
-#include <ashttpd.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <errno.h>
-#define __USE_GNU
-#include <fcntl.h>
-#include <nbio-eventfd.h>
 #include "../libaio/src/libaio.h"
+#define __USE_GNU /* O_DIRECT */
+#include <fcntl.h>
+#undef __USE_GNU
+
+#include <ashttpd.h>
+#include <ashttpd-conn.h>
+#include <ashttpd-buf.h>
+#include <ashttpd-fio.h>
+#include <nbio-eventfd.h>
 #include <rbtree.h>
 #include <hgang.h>
 
-/* ugly ugly ugly */
 #define PAGE_SHIFT	12U
 #define PAGE_SIZE	(1U<<12U)
 #define PAGE_MASK	(PAGE_SIZE - 1U)
 
-#define EXTRA_SHIFT	1U /* danger will robinson */
+#define EXTRA_SHIFT	1U
 
 #define CHUNK_SHIFT	(PAGE_SHIFT + EXTRA_SHIFT)
 #define CHUNK_SIZE	(1U << CHUNK_SHIFT)
 #define CHUNK_MASK	(CHUNK_SIZE - 1U)
+
+#define IO_STATE_IDLE		0
+#define IO_STATE_PENDING	1
+#define IO_STATE_COMPLETED	2
 
 #if 0
 #define dprintf printf
@@ -77,6 +85,11 @@ static int get_lock_limit(rlim_t *ll)
 		return 0;
 	}
 
+	if ( rlim.rlim_cur == RLIM_INFINITY ) {
+		*ll = rlim.rlim_cur;
+		return 1;
+	}
+
 	if ( rlim.rlim_cur < rlim.rlim_max ) {
 		rlim.rlim_cur = rlim.rlim_max;
 		if ( setrlimit(RLIMIT_MEMLOCK, &rlim) ) {
@@ -108,7 +121,10 @@ static int init_cache(int fd)
 		return 0;
 
 	cache_nr_chunks = (st.st_size + PAGE_MASK) >> PAGE_SHIFT;
-	lock_pages = (size_t)lock_limit >> PAGE_SHIFT;
+	if ( lock_limit == RLIM_INFINITY )
+		lock_pages = cache_nr_chunks << PAGE_SHIFT;
+	else
+		lock_pages = (size_t)lock_limit >> PAGE_SHIFT;
 	printf("dio: webroot: %llx bytes, %u pages required, %u lockable\n",
 		st.st_size, cache_nr_chunks, lock_pages);
 
@@ -150,10 +166,10 @@ static int init_cache(int fd)
 	return 1;
 }
 
-static size_t chunk_num(struct http_conn *h)
+static size_t chunk_num(off_t off)
 {
-	assert(h->h_data_off < off_end);
-	return (size_t)(h->h_data_off >> CHUNK_SHIFT);
+	assert(off < off_end);
+	return (size_t)(off >> CHUNK_SHIFT);
 }
 
 static uint8_t *cache2ptr(struct cache *c)
@@ -181,7 +197,6 @@ static void cache_free(struct cache *c)
 	dprintf("dio: cache to freelist: %p\n", c);
 	assert(c->c_ref == 0);
 	/* rbtree_delete_rebalance() is b0rk? */
-	abort();
 	rbtree_delete_node(&cache, &c->c_rbt);
 	memset(c, 0, sizeof(*c));
 	list_add(&c->c_u.cu_free, &freelist);
@@ -228,27 +243,29 @@ static void cache_put(struct cache *c)
 	}
 }
 
-static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
+static struct http_buf *cache2buf(struct cache *c, http_conn_t h)
 {
 	uint8_t *baseptr;
-	off_t c_base;
+	off_t c_base, data_len;
 	struct http_buf *buf;
+	off_t data_off;
 	size_t ofs, sz;
 
 	buf = buf_alloc_naked();
 	if ( NULL == buf )
 		return NULL;
 
-	assert(chunk_num(h) == c->c_num);
+	data_len = http_conn_data(h, NULL, &data_off);
+	assert(chunk_num(data_off) == c->c_num);
+	assert(data_len);
 
 	c_base = c->c_num << CHUNK_SHIFT;
 	baseptr = cache2ptr(c);
 
-	assert(h->h_data_off >= c_base);
-	ofs = h->h_data_off - c_base;
+	assert(data_off >= c_base);
+	ofs = data_off - c_base;
 	assert(ofs < CHUNK_SIZE);
-	sz = ((ofs + h->h_data_len) < CHUNK_SIZE) ?
-		h->h_data_len : (CHUNK_SIZE - ofs);
+	sz = ((ofs + data_len) < CHUNK_SIZE) ? data_len : (CHUNK_SIZE - ofs);
 	assert(ofs + sz <= CHUNK_SIZE);
 
 	buf->b_read = buf->b_base = baseptr + ofs;
@@ -259,14 +276,18 @@ static struct http_buf *cache2buf(struct cache *c, struct http_conn *h)
 	return buf;
 }
 
-static int cache_lookup(struct iothread *t, struct http_conn *h)
+static int cache_lookup(struct iothread *t, http_conn_t h)
 {
 	struct cache *c;
+	off_t data_off;
 	size_t key;
 
-	key = chunk_num(h);
+	key = http_conn_data(h, NULL, &data_off);
+	assert(key);
+
+	key = chunk_num(data_off);
 	dprintf("dio: cache_lookup: data_off=%llx chunk_off=%llx key=%u\n",
-		h->h_data_off, (off_t)key << CHUNK_SHIFT, key);
+		data_off, (off_t)key << CHUNK_SHIFT, key);
 
 	for(c = (struct cache *)cache.rbt_root; c; ) {
 		if ( key == c->c_num )
@@ -283,21 +304,22 @@ static int cache_lookup(struct iothread *t, struct http_conn *h)
 		return 0;
 	}
 
+	assert(c->c_num == key);
 	if ( c->c_ref ) {
+		struct http_buf *buf;
 		dprintf("cache hit\n");
-		assert(NULL == h->h_dat);
-		assert(chunk_num(h) == c->c_num);
-		h->h_dat = cache2buf(c, h);
-		if ( NULL == h->h_dat ) {
-			nbio_del(t, &h->h_nbio);
+		buf = cache2buf(c, h);
+		if ( NULL == buf ) {
+			http_conn_abort(t, h);
 			return 1;
 		}
+		http_conn_set_priv(h, buf, IO_STATE_COMPLETED);
 		return 1;
 	}
 
-	assert(chunk_num(h) == c->c_num);
 	dprintf("cache hit (pending)\n");
-	nbio_to_waitq(t, &h->h_nbio, &c->c_u.cu_pending->waitq);
+	http_conn_set_priv(h, c, IO_STATE_PENDING);
+	http_conn_to_waitq(t, h, &c->c_u.cu_pending->waitq);
 
 	return 1;
 }
@@ -384,25 +406,35 @@ static void diocb_prep(struct cache *c, struct iocb *iocb, int fd)
 	dprintf("io_submit: pread: %u bytes @ %llx\n", sz, off);
 }
 
-static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
+static void wake_diediedie(struct iothread *t, http_conn_t h)
 {
+	http_conn_set_priv(h, NULL, IO_STATE_IDLE);
+	http_conn_abort(t, h);
+}
+
+static int aio_submit(struct iothread *t, http_conn_t h)
+{
+	unsigned short io_state;
 	struct diocb *iocb;
 	struct cache *c;
-	int ret;
+	size_t data_len;
+	off_t data_off;
+	int ret, fd;
 
 	dprintf("\n");
-	assert(h->h_data_len);
+	data_len = http_conn_data(h, &fd, &data_off);
+	assert(data_len);
 
 	if ( cache_lookup(t, h) )
 		return 1;
 
-	c = cache_alloc(chunk_num(h));
+	c = cache_alloc(chunk_num(data_off));
 	if ( NULL == c ) {
 		printf("dio: cache OOM\n");
 		return 0;
 	}
 
-	iocb = hgang_alloc0(aio_iocbs);
+	iocb = hgang_alloc(aio_iocbs);
 	if ( NULL == iocb ) {
 		printf("dio: iocb OOM\n");
 		cache_free(c);
@@ -414,37 +446,54 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 	diocb_prep(c, &iocb->iocb, fd);
 	iocb->iocb.data = c;
 	INIT_LIST_HEAD(&iocb->waitq);
-	nbio_to_waitq(t, &h->h_nbio, &iocb->waitq);
+	http_conn_to_waitq(t, h, &iocb->waitq);
 
 	ret = io_submit(aio_ctx, 1, (struct iocb **)&iocb);
 	if ( ret <= 0 ) {
 		errno = -ret;
-		/* FIXME: kill one on waitq */
+		fprintf(stderr, "io_submit: %s\n", os_err());
+		http_conn_wake(t, &iocb->waitq, wake_diediedie);
 		cache_free(c);
 		hgang_return(aio_iocbs, iocb);
-		fprintf(stderr, "io_submit: %s\n", os_err());
-		abort();
 		return 0;
 	}
 
-	assert(chunk_num(h) == c->c_num);
+	assert(NULL == http_conn_get_priv(h, &io_state));
+	assert(io_state == IO_STATE_IDLE);
+	http_conn_set_priv(h, c, IO_STATE_PENDING);
 	in_flight++;
 	return 1;
+}
+
+static void wake_completed(struct iothread *t, http_conn_t h)
+{
+	struct http_buf *data_buf;
+	unsigned short io_state;
+	struct cache *c;
+
+	c = http_conn_get_priv(h, &io_state);
+	assert(io_state == IO_STATE_PENDING);
+
+	data_buf = cache2buf(c, h);
+	if ( NULL == data_buf ) {
+		http_conn_set_priv(h, NULL, IO_STATE_IDLE);
+		http_conn_abort(t, h);
+		return;
+	}
+
+	http_conn_set_priv(h, data_buf, IO_STATE_COMPLETED);
 }
 
 static void handle_completion(struct iothread *t, struct diocb *iocb,
 				struct cache *c, int ret)
 {
-	struct http_conn *h, *tmp;
-
 	assert(c == iocb->iocb.data);
 
 	if ( ret <= 0 ) {
-		/* FIXME: loop on wait queue and kill everything */
 		errno = -ret;
 		fprintf(stderr, "aio_pread: %s\n", os_err());
+		http_conn_wake(t, &iocb->waitq, wake_diediedie);
 		hgang_return(aio_iocbs, iocb);
-		abort();
 		return;
 	}
 
@@ -455,21 +504,7 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 	c->c_u.cu_pending = NULL;
 	cache_get(c);
 
-	list_for_each_entry_safe(h, tmp, &iocb->waitq, h_nbio.list) {
-		/* AIO read may run in parallel with transmission of header */
-		assert(h->h_state == HTTP_CONN_DATA ||
-			h->h_state == HTTP_CONN_HEADER);
-		assert(NULL == h->h_dat);
-
-		h->h_dat = cache2buf(c, h);
-		if ( NULL == h->h_dat ) {
-			nbio_del(t, &h->h_nbio);
-			continue;
-		}
-
-		nbio_wake(t, &h->h_nbio, NBIO_WRITE);
-	}
-
+	http_conn_wake(t, &iocb->waitq, wake_completed);
 	assert(list_empty(&iocb->waitq));
 	hgang_return(aio_iocbs, iocb);
 }
@@ -535,62 +570,82 @@ static int webroot_dio_fd(const char *fn)
 	return open(fn, O_RDONLY|O_DIRECT);
 }
 
-static int io_dasync_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_dasync_write(struct iothread *t, http_conn_t h)
 {
 	int flags = MSG_NOSIGNAL;
+	struct http_buf *data_buf;
 	const uint8_t *ptr;
+	size_t sz, data_len;
+	unsigned short io_state;
 	ssize_t ret;
-	size_t sz;
 
 	dprintf("\n");
-	ptr = buf_read(h->h_dat, &sz);
+	data_buf = http_conn_get_priv(h, &io_state);
+	assert(io_state == IO_STATE_COMPLETED);
+	ptr = buf_read(data_buf, &sz);
 
-	if ( h->h_data_len > sz )
+	if ( http_conn_data(h, NULL, NULL) )
 		flags |= MSG_MORE;
 
-	ret = send(h->h_nbio.fd, ptr, sz, flags);
+	ret = send(http_conn_socket(h), ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &h->h_nbio);
+		http_conn_inactive(t, h);
 		return 1;
 	}else if ( ret <= 0 ) {
 		return 0;
 	}
 
-	h->h_data_off += (size_t)ret;
-	h->h_data_len -= (size_t)ret;
 
 	dprintf("Transmitted %u\n", (size_t)ret);
-	buf_done_read(h->h_dat, ret);
-	buf_read(h->h_dat, &sz);
-
+	sz = buf_done_read(data_buf, ret);
 	if ( sz ) {
 		dprintf("Partial transmit: %u bytes left\n", sz);
 		return 1;
 	}
 
-	buf_put(h->h_dat);
-	h->h_dat = NULL;
+	buf_put(data_buf);
+	http_conn_set_priv(h, NULL, IO_STATE_IDLE);
 
-	if ( h->h_data_len ) {
-		dprintf("Submit more, %u bytes left\n", h->h_data_len);
-		return aio_submit(t, h, fd);
+	data_len = http_conn_data_read(h, ret);
+	if ( data_len ) {
+		dprintf("Submit more, %u bytes left\n", data_len);
+		return aio_submit(t, h);
 	}
 
-	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-	h->h_state = HTTP_CONN_REQUEST;
+	http_conn_data_complete(t, h);
 	dprintf("DONE\n");
 
 	return 1;
 }
 
-static int io_dasync_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_dasync_prep(struct iothread *t, http_conn_t h)
 {
-	return aio_submit(t, h, fd);
+	http_conn_set_priv(h, NULL, IO_STATE_IDLE);
+	return aio_submit(t, h);
 }
 
-static void io_dasync_abort(struct http_conn *h)
+static void io_dasync_abort(http_conn_t h)
 {
-	buf_put(h->h_dat);
+	unsigned short io_state;
+	struct http_buf *buf;
+	void *priv;
+
+	priv = http_conn_get_priv(h, &io_state);
+	switch(io_state) {
+	case IO_STATE_IDLE:
+		assert(priv == NULL);
+		break;
+	case IO_STATE_PENDING:
+		printf("EEK\n");
+		abort();
+		break;
+	case IO_STATE_COMPLETED:
+		buf = priv;
+		buf_put(buf);
+		break;
+	default:
+		abort();
+	}
 }
 
 static void io_dasync_fini(struct iothread *t)

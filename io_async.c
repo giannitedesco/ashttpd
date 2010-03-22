@@ -1,8 +1,11 @@
-#include <ashttpd.h>
 #include <sys/socket.h>
-#include <errno.h>
-#include <nbio-eventfd.h>
 #include "../libaio/src/libaio.h"
+#include <errno.h>
+#include <ashttpd.h>
+#include <ashttpd-conn.h>
+#include <ashttpd-buf.h>
+#include <ashttpd-fio.h>
+#include <nbio-eventfd.h>
 #include <hgang.h>
 
 #if 0
@@ -17,23 +20,28 @@ static hgang_t aio_iocbs;
 static struct nbio *efd;
 static unsigned in_flight;
 
-static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
+static int aio_submit(struct iothread *t, http_conn_t h)
 {
+	struct http_buf *data_buf;
 	struct iocb *iocb;
+	size_t data_len;
+	off_t data_off;
 	uint8_t *ptr;
+	int ret, fd;
 	size_t sz;
-	int ret;
 
-	assert(h->h_data_len);
+	data_len = http_conn_data(h, &fd, &data_off);
+	assert(data_len);
 
-	iocb = hgang_alloc0(aio_iocbs);
+	iocb = hgang_alloc(aio_iocbs);
 	if ( NULL == iocb )
 		return 0;
 
-	ptr = buf_write(h->h_dat, &sz);
-	sz = (h->h_data_len < sz) ? h->h_data_len : sz;
+	data_buf = http_conn_get_priv(h, NULL);
+	ptr = buf_write(data_buf, &sz);
+	sz = (data_len < sz) ? data_len : sz;
 
-	io_prep_pread(iocb, fd, ptr, sz, h->h_data_off);
+	io_prep_pread(iocb, fd, ptr, sz, data_off);
 	iocb->data = h;
 	io_set_eventfd(iocb, efd->fd);
 
@@ -45,29 +53,29 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 	}
 
 	dprintf("io_submit: pread: %u bytes\n", sz);
-	nbio_set_wait(t, &h->h_nbio, 0);
+	http_conn_to_waitq(t, h, NULL);
 	in_flight++;
 	return 1;
 }
 
 static void handle_completion(struct iothread *t, struct iocb *iocb,
-				struct http_conn *h, int ret)
+				http_conn_t h, int ret)
 {
-	/* AIO read may run in parallel with transmission of header */
-	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
+	struct http_buf *data_buf;
 
 	hgang_return(aio_iocbs, iocb);
 	in_flight--;
 
 	if ( ret <= 0 ) {
-		/* FIXME: signal error to io_async_write() */
 		errno = -ret;
-		fprintf(stderr, "aio_pread: %s\n", os_err());
+		fprintf(stderr, "io_pread: %s\n", os_err());
+		http_conn_abort(t, h);
 		return;
 	}
 
-	buf_done_write(h->h_dat, ret);
-	nbio_wake(t, &h->h_nbio, NBIO_WRITE);
+	data_buf = http_conn_get_priv(h, NULL);
+	buf_done_write(data_buf, ret);
+	http_conn_wake_one(t, h);
 }
 
 static void aio_event(struct iothread *t, void *priv, eventfd_t val)
@@ -118,75 +126,79 @@ static int io_async_init(struct iothread *t, int webroot_fd)
 	return 1;
 }
 
-static int io_async_write(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_write(struct iothread *t, http_conn_t h)
 {
+	struct http_buf *data_buf;
 	int flags = MSG_NOSIGNAL;
 	const uint8_t *ptr;
+	size_t data_len;
 	ssize_t ret;
 	size_t sz;
 
 	dprintf("\n");
 
-	if ( h->h_data_len )
+	data_buf = http_conn_get_priv(h, NULL);
+	ptr = buf_read(data_buf, &sz);
+	data_len = http_conn_data(h, NULL, NULL);
+	if ( data_len > sz )
 		flags |= MSG_MORE;
 
-	ptr = buf_read(h->h_dat, &sz);
-	ret = send(h->h_nbio.fd, ptr, sz, flags);
+	ret = send(http_conn_socket(h), ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &h->h_nbio);
+		http_conn_inactive(t, h);
 		return 1;
 	}else if ( ret <= 0 ) {
 		return 0;
 	}
 
 	dprintf("Transmitted %u\n", (size_t)ret);
-	buf_done_read(h->h_dat, ret);
-	buf_read(h->h_dat, &sz);
-
+	sz = buf_done_read(data_buf, ret);
+	data_len = http_conn_data_read(h, ret);
 	if ( sz ) {
 		dprintf("Partial transmit: %u bytes left\n", sz);
 		return 1;
 	}
 
-	h->h_data_off += (size_t)ret;
-	h->h_data_len -= (size_t)ret;
-
-	if ( h->h_data_len ) {
-		dprintf("Submit more, %u bytes left\n", h->h_data_len);
-		buf_reset(h->h_dat);
-		return aio_submit(t, h, fd);
+	if ( data_len ) {
+		dprintf("Submit more, %u bytes left\n", data_len);
+		buf_reset(data_buf);
+		return aio_submit(t, h);
 	}
 
-	buf_free_data(h->h_dat);
-	h->h_dat = NULL;
-	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-	h->h_state = HTTP_CONN_REQUEST;
+	buf_free_data(data_buf);
+	http_conn_set_priv(h, NULL, 0);
+	http_conn_data_complete(t, h);
 	dprintf("DONE\n");
 
 	return 1;
 }
 
-static int io_async_prep(struct iothread *t, struct http_conn *h, int fd)
+static int io_async_prep(struct iothread *t, http_conn_t h)
 {
-	h->h_dat = buf_alloc_data();
+	struct http_buf *data_buf;
+
+	data_buf = buf_alloc_data();
 	dprintf("allocated buffer\n");
-	if ( NULL == h->h_dat ) {
+	if ( NULL == data_buf ) {
 		printf("OOM on data...\n");
 		return 0;
 	}
 
-	if ( !aio_submit(t, h, fd) ) {
-		buf_free_data(h->h_dat);
-		h->h_dat = NULL;
+	http_conn_set_priv(h, data_buf, 0);
+	if ( !aio_submit(t, h) ) {
+		buf_free_data(data_buf);
+		http_conn_set_priv(h, NULL, 0);
 		return 0;
 	}
 
 	return 1;
 }
 
-static void io_async_abort(struct http_conn *h)
+static void io_async_abort(http_conn_t h)
 {
-	buf_free_data(h->h_dat);
+	struct http_buf *data_buf;
+	data_buf = http_conn_get_priv(h, NULL);
+	buf_free_data(data_buf);
 }
 
 static void io_async_fini(struct iothread *t)

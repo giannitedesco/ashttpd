@@ -1,7 +1,9 @@
-#include <ashttpd.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+#include <ashttpd.h>
 #include <hgang.h>
+#include <ashttpd-buf.h>
 
 static hgang_t h_req;
 static hgang_t h_res;
@@ -104,17 +106,19 @@ uint8_t *buf_write(struct http_buf *b, size_t *sz)
 	return (b->b_write < b->b_end) ? b->b_write : NULL;
 }
 
-void buf_done_read(struct http_buf *b, size_t sz)
+size_t buf_done_read(struct http_buf *b, size_t sz)
 {
 	assert(b->b_read + sz <= b->b_write);
 	assert(b->b_read + sz <= b->b_end);
 	b->b_read += sz;
+	return b->b_write - b->b_read;
 }
 
-void buf_done_write(struct http_buf *b, size_t sz)
+size_t buf_done_write(struct http_buf *b, size_t sz)
 {
 	assert(b->b_write + sz <= b->b_end);
 	b->b_write += sz;
+	return b->b_end - b->b_write;
 }
 
 void buf_reset(struct http_buf *b)

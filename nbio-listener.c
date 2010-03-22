@@ -55,6 +55,13 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	//	htons(sa.sin_port));
 
 	l->cbfn(t, fd, l->priv);
+
+	/* Make sure to service just-accepted connection before
+	 * acccepting new ones Probably it's petty, sure it's a bit
+	 * hacky, it relies on knowing that nbio_set_wait puts us at
+	 * the end of the active queue
+	 */
+	nbio_set_wait(t, io, NBIO_READ);
 }
 
 static void listener_dtor(struct iothread *t, struct nbio *io)

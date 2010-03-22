@@ -1,8 +1,11 @@
-#include <ashttpd.h>
 #include <sys/socket.h>
 #include <errno.h>
-#include <nbio-eventfd.h>
 #include "../libaio/src/libaio.h"
+
+#include <ashttpd.h>
+#include <ashttpd-conn.h>
+#include <ashttpd-fio.h>
+#include <nbio-eventfd.h>
 #include <hgang.h>
 
 #if 0
@@ -17,18 +20,21 @@ static hgang_t aio_iocbs;
 static struct nbio *efd;
 static unsigned in_flight;
 
-static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
+static int aio_submit(struct iothread *t, http_conn_t h)
 {
 	struct iocb *iocb;
-	int ret;
+	size_t data_len;
+	off_t data_off;
+	int ret, fd;
 
-	assert(h->h_data_len);
+	data_len = http_conn_data(h, &fd, &data_off);
+	assert(data_len);
 
-	iocb = hgang_alloc0(aio_iocbs);
+	iocb = hgang_alloc(aio_iocbs);
 	if ( NULL == iocb )
 		return 0;
 
-	io_prep_sendfile(iocb, fd, h->h_data_len, h->h_data_off, h->h_nbio.fd);
+	io_prep_sendfile(iocb, fd, data_len, data_off, http_conn_socket(h));
 	iocb->data = h;
 	io_set_eventfd(iocb, efd->fd);
 
@@ -39,49 +45,41 @@ static int aio_submit(struct iothread *t, struct http_conn *h, int fd)
 		return 0;
 	}
 
-	dprintf("io_submit: sendfile: %u bytes\n", h->h_data_len);
+	dprintf("io_submit: sendfile: %u bytes\n", h_data_len);
 	in_flight++;
 	return 1;
 }
 
 static void handle_completion(struct iothread *t, struct iocb *iocb,
-				struct http_conn *h, int ret)
+				http_conn_t h, int ret)
 {
-	int fd;
-
-	assert(h->h_state == HTTP_CONN_DATA);
-
-	fd = iocb->aio_fildes;
 	hgang_return(aio_iocbs, iocb);
 	in_flight--;
 
 	if ( ret > 0 ) {
-		assert((size_t)ret <= h->h_data_len);
-		h->h_data_off += (size_t)ret;
-		h->h_data_len -= (size_t)ret;
-		if ( h->h_data_len ) {
+		size_t data_len;
+		data_len = http_conn_data_read(h, ret);
+		if ( data_len ) {
 			printf("re-submit from completion\n");
-			if ( !aio_submit(t, h, fd) )
-				nbio_del(t, &h->h_nbio);
+			if ( !aio_submit(t, h) )
+				http_conn_abort(t, h);
 		}else{
 			dprintf("aio_sendfile: done\n");
-			h->h_state = HTTP_CONN_REQUEST;
-			nbio_set_wait(t, &h->h_nbio, NBIO_READ);
-			nbio_inactive(t, &h->h_nbio);
+			/* automatically removes from waitq */
+			http_conn_data_complete(t, h);
 		}
 		return;
 	}
 
 	if ( ret == -EAGAIN ) {
 		dprintf("aio_sendfile: failed EAGAIN\n");
-		nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
-		nbio_inactive(t, &h->h_nbio);
+		http_conn_wait_on(t, h, NBIO_WRITE);
 		return;
 	}else if (ret < 0 ) {
 		errno = -ret;
 		printf("aio_sendfile: %s\n", os_err());
 	}
-	nbio_del(t, &h->h_nbio);
+	http_conn_abort(t, h);
 }
 
 static void aio_event(struct iothread *t, void *priv, eventfd_t val)
@@ -123,23 +121,20 @@ static int io_async_sendfile_init(struct iothread *t, int webroot_fd)
 	return 1;
 }
 
-static int io_async_sendfile_write(struct iothread *t,
-					struct http_conn *h, int fd)
+static int io_async_sendfile_write(struct iothread *t, http_conn_t h)
 {
 	dprintf("aio_sendfile: socket went writable\n");
-	nbio_set_wait(t, &h->h_nbio, 0);
-	return aio_submit(t, h, fd);
+	http_conn_to_waitq(t, h, NULL);
+	return aio_submit(t, h);
 }
 
-static int io_async_sendfile_prep(struct iothread *t,
-					struct http_conn *h, int fd)
+static int io_async_sendfile_prep(struct iothread *t, http_conn_t h)
 {
 	return 1;
 }
 
-static void io_async_sendfile_abort(struct http_conn *h)
+static void io_async_sendfile_abort(http_conn_t h)
 {
-	buf_free_data(h->h_dat);
 }
 
 static void io_async_sendfile_fini(struct iothread *t)
