@@ -5,13 +5,15 @@
  *
  * Poll based eventloop
  */
-#include <compiler.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/poll.h>
+#include <errno.h>
+
+#include <compiler.h>
 #include <list.h>
 #include <nbio.h>
-#include <sys/poll.h>
 
 struct poll_priv {
 	int max_pfd, num_pfd;
@@ -66,9 +68,13 @@ static void poll_pump(struct iothread *t, int mto)
 	struct nbio *n, *tmp;
 	int ret;
 
+again:
 	ret = poll(p->pfd, p->num_pfd, mto);
-	if ( ret < 0 )
+	if ( ret < 0 ) {
+		if ( errno == EINTR )
+			goto again;
 		return;
+	}
 
 	p->num_pfd = 0;
 
