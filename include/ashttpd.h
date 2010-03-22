@@ -98,6 +98,7 @@ struct http_fio {
 };
 
 _private extern struct http_fio fio_sync;
+_private extern struct http_fio fio_sendfile;
 _private extern struct http_fio fio_async;
 _private extern struct http_fio fio_dasync;
 _private extern struct http_fio fio_async_sendfile;

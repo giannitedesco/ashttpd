@@ -312,6 +312,9 @@ static struct http_fio *io_model(const char *name)
 		/* traditional pread based */
 		{"sync", &fio_sync},
 
+		/* sendfile: regular synchronous version */
+		{"sendfile", &fio_sendfile},
+
 		/* Kernel AIO on regular file, not currently
 		 * supported in linux 2.6 so falls back to synchronous
 		 */
