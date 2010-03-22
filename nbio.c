@@ -148,10 +148,10 @@ void nbio_del(struct iothread *t, struct nbio *n)
 	list_move_tail(&n->list, &t->deleted);
 }
 
-void nbio_inactive(struct iothread *t, struct nbio *n)
+void nbio_inactive(struct iothread *t, struct nbio *io)
 {
-	list_move_tail(&n->list, &t->inactive);
-	t->plugin->inactive(t, n);
+	list_move_tail(&io->list, &t->inactive);
+	t->plugin->inactive(t, io);
 }
 
 static void do_set_wait(struct iothread *t, struct nbio *io,
@@ -190,15 +190,25 @@ void nbio_wake(struct iothread *t, struct nbio *io, unsigned short wait)
 	do_set_wait(t, io, wait, NULL);
 }
 
+/* Move from wait queue to inactive list */
+void nbio_wait_on(struct iothread *t, struct nbio *io, unsigned short wait)
+{
+	assert(io->mask != NBIO_DELETED);
+	wait &= NBIO_WAIT;
+	io->mask = io->flags = wait;
+	list_move_tail(&io->list, &t->inactive);
+	t->plugin->inactive(t, io);
+}
+
 unsigned short nbio_get_wait(struct nbio *io)
 {
 	return io->mask & NBIO_WAIT;
 }
 
-void nbio_add(struct iothread *t, struct nbio *n, unsigned short wait)
+void nbio_add(struct iothread *t, struct nbio *io, unsigned short wait)
 {
-	INIT_LIST_HEAD(&n->list);
-	do_set_wait(t, n, wait, NULL);
+	INIT_LIST_HEAD(&io->list);
+	do_set_wait(t, io, wait, NULL);
 }
 
 static void __attribute__((constructor)) _ctor(void)

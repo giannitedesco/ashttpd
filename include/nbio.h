@@ -52,6 +52,7 @@ _private unsigned short nbio_get_wait(struct nbio *io);
 _private void nbio_to_waitq(struct iothread *, struct nbio *,
 				struct list_head *q);
 _private void nbio_wake(struct iothread *, struct nbio *, unsigned short);
+_private void nbio_wait_on(struct iothread *t, struct nbio *n, unsigned short);
 
 /* eventloop plugin API */
 struct eventloop {
