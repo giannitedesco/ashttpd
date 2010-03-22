@@ -456,7 +456,11 @@ static void handle_completion(struct iothread *t, struct diocb *iocb,
 	cache_get(c);
 
 	list_for_each_entry_safe(h, tmp, &iocb->waitq, h_nbio.list) {
+		/* AIO read may run in parallel with transmission of header */
+		assert(h->h_state == HTTP_CONN_DATA ||
+			h->h_state == HTTP_CONN_HEADER);
 		assert(NULL == h->h_dat);
+
 		h->h_dat = cache2buf(c, h);
 		if ( NULL == h->h_dat ) {
 			nbio_del(t, &h->h_nbio);
