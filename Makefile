@@ -10,6 +10,7 @@ HTTPD_SLIBS = ../libaio/src/libaio.a
 HTTPD_LIBS = 
 HTTPD_OBJ = httpd.o \
 		http_parse.o \
+		http_req.o \
 		http_buf.o \
 		webroot.o \
 		io_sync.o \
@@ -36,6 +37,7 @@ HTTPRAPE_BIN = httprape
 HTTPRAPE_SLIBS =
 HTTPRAPE_LIBS = 
 HTTPRAPE_OBJ = httprape.o \
+		http_parse.o \
 		nbio.o \
 		nbio-epoll.o \
 		nbio-poll.o \

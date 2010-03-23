@@ -10,6 +10,8 @@
 #include <ashttpd-conn.h>
 #include <ashttpd-buf.h>
 #include <ashttpd-fio.h>
+#include <http-parse.h>
+#include <http-req.h>
 #include <hgang.h>
 
 #define HTTP_CONN_REQUEST	0

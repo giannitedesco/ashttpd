@@ -1,20 +1,11 @@
-#include <ashttpd.h>
 #include <limits.h>
 #include <ctype.h>
 
-/* HTTP Decode Control Block */
-struct http_hcb {
-	const char *label;
-	void (*fn)(struct http_hcb *, struct ro_vec *);
-	union {
-		struct ro_vec *vec;
-		uint16_t *u16;
-		int *val;
-	}u;
-};
+#include <ashttpd.h>
+#include <http-parse.h>
 
 /* Parse and HTTP version string (eg: "HTTP/1.0") */
-static http_ver_t http_proto_version(struct ro_vec *str)
+http_ver_t http_proto_version(struct ro_vec *str)
 {
 	const uint8_t *s = str->v_ptr;
 	int maj, min;
@@ -40,7 +31,7 @@ static http_ver_t http_proto_version(struct ro_vec *str)
 	return (min << 4) | maj;
 }
 
-static void htype_string(struct http_hcb *h, struct ro_vec *v)
+void htype_string(struct http_hcb *h, struct ro_vec *v)
 {
 	if ( !h->u.vec )
 		return;
@@ -49,12 +40,12 @@ static void htype_string(struct http_hcb *h, struct ro_vec *v)
 	h->u.vec->v_len = v->v_len;
 }
 
-static void htype_present(struct http_hcb *h, struct ro_vec *v)
+void htype_present(struct http_hcb *h, struct ro_vec *v)
 {
 	*h->u.val = 1;
 }
 
-static void htype_int(struct http_hcb *h, struct ro_vec *v)
+void htype_int(struct http_hcb *h, struct ro_vec *v)
 {
 	unsigned int val;
 	size_t len;
@@ -111,7 +102,7 @@ static inline void dispatch_hdr(struct http_hcb *dcb,
 
 /* Get a version code for a given major and minor version */
 /* Actually parse an HTTP request */
-static size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
+size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 				const uint8_t *p, const uint8_t *end)
 {
 	const uint8_t *cur;
@@ -195,117 +186,3 @@ static size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 
 	return ret;
 }
-
-/* Parse an HTTP request header and fill in the http response structure */
-size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
-{
-	const uint8_t *end = ptr + len;
-	int clen = -1;
-	size_t hlen;
-	struct ro_vec pv = {0,};
-	int prox = 0;
-	size_t i;
-	int state, do_host;
-	struct http_hcb hcb[] = {
-		{"method", htype_string, {.vec = &r->method}},
-		{"uri", htype_string, {.vec = &r->uri}},
-		{"protocol", htype_string, {.vec = &pv}},
-		{"Host", htype_string , {.vec = &r->host}},
-		{"Content-Type", htype_string,
-					{.vec = &r->content_type}},
-		{"Content-Length", htype_int, {.val = &clen}},
-		{"Proxy-Connection", htype_present, {.val = &prox}},
-		{"Content-Encoding", htype_string,
-					{.vec = &r->content_enc}},
-		{"Transfer-Encoding", htype_string,
-					{.vec = &r->transfer_enc}},
-	};
-
-	/* Do the decode */
-	hlen = http_decode_buf(hcb, sizeof(hcb)/sizeof(*hcb), ptr, end);
-	if ( !hlen )
-		return 0;
-
-	r->proto_vers = http_proto_version(&pv);
-
-	if ( clen > 0 )
-		r->content.v_len = clen;
-
-	/* Strip out Request-URI to just abs_path, Filling in host
-	 * information if there was no host header
-	 */
-	if ( !prox ) {
-		if ( r->uri.v_len < 7 ||
-			strncasecmp((const char *)r->uri.v_ptr, "http://", 7) )
-			goto done;
-	}
-
-	for(i = state = do_host = 0; i < r->uri.v_len; i++) {
-		if ( state == 0 ) {
-			if ( ((char *)r->uri.v_ptr)[i] == ':' )
-				state++;
-		}else if ( state >= 1 && state < 4 ) {
-			if ( ((char *)r->uri.v_ptr)[i] == '/' ) {
-				if ( state == 3 && !r->host.v_ptr ) {
-					r->host.v_ptr = r->uri.v_ptr + i + 1;
-					r->host.v_len = 0;
-					do_host = 1;
-				}
-				state++;
-			}else if ( do_host ) {
-				r->host.v_len++;
-			}
-		}else{
-			i -= 1;
-			break;
-		}
-	}
-
-	if ( state < 3 )
-		goto done;
-
-	r->uri.v_ptr += i;
-	r->uri.v_len -= i;
-
-	if ( r->uri.v_len == 0 )
-		r->uri.v_ptr = NULL;
-
-done:
-	/* Extract the port from the host header */
-	r->port = HTTP_DEFAULT_PORT;
-	if ( r->host.v_ptr ) {
-		size_t i;
-		struct ro_vec port = { .v_ptr = NULL };
-		unsigned int prt;
-
-		for(i = r->host.v_len; i; i--) {
-			if (  ((uint8_t *)r->host.v_ptr)[i-1] == ':' ) {
-				port.v_len = r->host.v_len - i;
-				port.v_ptr = r->host.v_ptr + i;
-				r->host.v_len = i - 1;
-				break;
-			}
-		}
-
-		if ( port.v_len ) {
-			if ( vtouint(&port, &prt) == port.v_len ) {
-				if ( prt & ~0xffffUL ) {
-					/* TODO */
-					//alert_tag(p, &a_invalid_port, -1);
-				}else{
-					r->port = prt;
-				}
-			}
-		}
-	}
-
-	/* rfc2616: An empty abs_path is equivalent to an abs_path of "/" */
-	if ( r->uri.v_ptr == NULL ) {
-		r->uri.v_ptr = (const uint8_t *)"/";
-		r->uri.v_len = 1;
-	}
-
-	return hlen;
-}
-
-

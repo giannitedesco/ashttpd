@@ -1,0 +1,67 @@
+#!/usr/bin/python
+from sys import stdin
+
+class HTTPObject:
+	def __init__(self, uri):
+		self.uri = uri
+		self.sub_uris = []
+		self.__links = []
+		self.links = []
+	def add_sub(self, uri):
+		self.sub_uris.append(uri)
+	def add_link(self, uri, weight):
+		self.__links.append((uri, weight))
+	def resolve_links(self, objmap):
+		self.links = []
+		for (u, w) in self.__links:
+			if objmap.has_key(u):
+				self.links.append((objmap[u], w))
+			else:
+				print "Non-specified terminal: %s"%u
+				self.links.append((HTTPObject(u), w))
+		del self.__links
+	def __str__(self):
+		return self.uri
+
+if __name__ == '__main__':
+	cur_obj = None
+	objmap = {}
+	initial = HTTPObject(None)
+	for line in stdin:
+		line = line.rstrip("\r\n")
+		if len(line) == 0 or line[0] == '#':
+			continue
+		if line[0] == '\t':
+			line = line[1:]
+			if len(line) > 2 and line[:2] == '->':
+				toks = line.split(None, 1)
+				uri = toks[0][2:]
+				if len(toks) > 1:
+					weight = int(toks[1])
+				else:
+					weight = 1
+				cur_obj.add_link(uri, weight)
+			else:
+				cur_obj.add_sub(line)
+		else:
+			toks = line.split(None, 1)
+			uri = toks[0]
+			if len(toks) > 1:
+				weight = int(toks[1])
+			else:
+				weight = 1
+			initial.add_link(uri, weight)
+			cur_obj = HTTPObject(uri)
+			objmap[cur_obj.uri] = cur_obj
+
+	for x in objmap.values():
+		x.resolve_links(objmap)
+	initial.resolve_links(objmap)
+	del objmap
+
+	print
+	print "Marov model: initial states:"
+	for (u, w) in initial.links:
+		print "  %-20s weight=%u"%(u, w)
+		for x in u.sub_uris:
+			print "   - %s"%x

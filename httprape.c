@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include <ashttpd.h>
+#include <httprape.h>
 #include <nbio-connecter.h>
 #include <ashttpd-buf.h>
 #include <hgang.h>

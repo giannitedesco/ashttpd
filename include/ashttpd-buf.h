@@ -1,6 +1,10 @@
 #ifndef _ASHTTPD_BUF_H
 #define _ASHTTPD_BUF_H
 
+#define HTTP_MAX_REQ		2048
+#define HTTP_MAX_RESP		1024
+#define HTTP_DATA_BUFFER	4096
+
 struct http_buf {
 	/* On the real */
 	uint8_t		*b_base;
