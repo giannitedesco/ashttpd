@@ -15,7 +15,7 @@
 
 static int io_sendfile_init(struct iothread *t, int webroot_fd)
 {
-	return 1;
+	return os_sigpipe_ignore();
 }
 
 static int io_sendfile_write(struct iothread *t, http_conn_t h)
@@ -28,6 +28,7 @@ static int io_sendfile_write(struct iothread *t, http_conn_t h)
 	len = http_conn_data(h, &fd, &off);
 
 	/* let's try to be fair */
+	/* TODO: does it even make a difference? */
 	if ( len > 8192 )
 		len = 8192;
 

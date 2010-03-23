@@ -11,10 +11,12 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/poll.h>
+#include <stdio.h>
 
 #include <compiler.h>
 #include <os.h>
@@ -328,6 +330,16 @@ again:
 		buf += (size_t)ret;
 		len -= (size_t)ret;
 		goto again;
+	}
+
+	return 1;
+}
+
+int os_sigpipe_ignore(void)
+{
+	if ( signal(SIGPIPE, SIG_IGN) ) {
+		fprintf(stderr, "signal: %s\n", os_err());
+		return 0;
 	}
 
 	return 1;

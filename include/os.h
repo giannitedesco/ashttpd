@@ -20,4 +20,6 @@ _private int fd_close(int fd);
 _private int fd_block(int fd, int b);
 _private int fd_coe(int fd, int coe);
 
+_private int os_sigpipe_ignore(void);
+
 #endif /* _FIRESTORM_OS_HEADER_INCLUDED_ */
