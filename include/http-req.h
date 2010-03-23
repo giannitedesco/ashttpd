@@ -8,6 +8,7 @@ struct http_request {
 	struct ro_vec	uri;
 	struct ro_vec	uri_path;
 	struct ro_vec	uri_query;
+	struct ro_vec	connection;
 	struct ro_vec	transfer_enc;
 	struct ro_vec	content_type;
 	struct ro_vec	content_enc;

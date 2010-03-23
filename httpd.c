@@ -30,6 +30,8 @@ struct _http_conn {
 	void 		*h_io_priv;
 	off_t		h_data_off;
 	size_t		h_data_len;
+
+	unsigned int	h_conn_close;
 };
 
 #if 0
@@ -62,6 +64,12 @@ static const char * const resp400 =
 
 static void http_kill(struct iothread *t, struct _http_conn *h)
 {
+	/* ma have got here already due to data complete in a non
+	 * nbio context (eg. AIO) on a non-persistent HTTP connection
+	 */
+	if ( h->h_nbio.fd == -1 )
+		return;
+
 	dprintf("Connection killed\n");
 	fd_close(h->h_nbio.fd);
 	h->h_nbio.fd = -1;
@@ -115,6 +123,8 @@ void http_conn_data_complete(struct iothread *t, http_conn_t h)
 	assert(0 == h->h_data_len);
 	h->h_state = HTTP_CONN_REQUEST;
 	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
+	if ( h->h_conn_close )
+		http_kill(t, h);
 }
 
 void http_conn_abort(struct iothread *t, http_conn_t h)
@@ -214,6 +224,8 @@ static int http_write_hdr(struct iothread *t, struct _http_conn *h)
 				h->h_data_len);
 			h->h_state = HTTP_CONN_DATA;
 		}else{
+			if ( h->h_conn_close )
+				return 0;
 			nbio_set_wait(t, &h->h_nbio, NBIO_READ);
 			h->h_state = HTTP_CONN_REQUEST;
 		}
@@ -245,6 +257,7 @@ static void http_write(struct iothread *t, struct nbio *n)
 		http_kill(t, h);
 }
 
+/* FIXME: persistent connection handling */
 static int response_400(struct iothread *t, struct _http_conn *h)
 {
 	uint8_t *ptr;
@@ -265,6 +278,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	const struct webroot_name *n;
 	unsigned int code, mime_type;
 	struct ro_vec search_uri = r->uri;
+	char *conn;
 	uint8_t *ptr;
 	size_t sz;
 	int len;
@@ -294,17 +308,24 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
+	if ( h->h_conn_close ) {
+		conn = "Close";
+	}else{
+		conn = "Keep-Alive";
+	}
+
 	ptr = buf_write(h->h_res, &sz);
 	len = snprintf((char *)ptr, sz,
 			"HTTP/1.1 %u %s\r\n"
 			"Content-Type: %s\r\n"
 			"Content-Length: %u\r\n"
-			"Connection: keep-alive\r\n"
+			"Connection: %s\r\n"
 			"\r\n",
 			code,
 			(code == 200) ? "OK": "Not Found",
 			webroot_mime_type(mime_type),
-			h->h_data_len);
+			h->h_data_len,
+			conn);
 	if ( len < 0 )
 		len = 0;
 	if ( (size_t)len == sz ) {
@@ -334,15 +355,36 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		return;
 	}
 
-	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
-	h->h_state = HTTP_CONN_HEADER;
 	h->h_res = buf_alloc_res();
-
 	if ( NULL == h->h_res ) {
 		printf("OOM on res...\n");
 		http_kill(t, h);
 		return;
-	}else if ( vstrcmp_fast(&r.method, "GET") ) {
+	}
+
+	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
+	h->h_state = HTTP_CONN_HEADER;
+
+	if ( r.proto_vers >= HTTP_VER_1_1 ) {
+		static const struct ro_vec close_token = {
+			.v_ptr = (uint8_t *)"Close",
+			.v_len = 5,
+		};
+		if ( !vcasecmp_fast(&r.connection, &close_token) ) {
+			h->h_conn_close = 1;
+		}else{
+			h->h_conn_close = 0;
+		}
+	}else{
+		/* For HTTP/1.0 close connection regardless of connection
+		 * header token. Due to buggy proxies which may pass on
+		 * connection: Keep-Alive token without understanding it
+		 * resulting in a hung connection
+		 */
+		h->h_conn_close = 1;
+	}
+
+	if ( vstrcmp_fast(&r.method, "GET") ) {
 		/* FIXME: bad request */
 		ret = response_400(t, h);
 	}else{
