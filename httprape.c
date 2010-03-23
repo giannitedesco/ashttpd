@@ -59,19 +59,25 @@ static void advance_vec(struct http_client *c, size_t bytes)
 
 static void client_read(struct iothread *t, struct nbio *io)
 {
+	struct http_client *c = (struct http_client *)io;
 	// read response
+	abort_client(t, c);
 }
 
 static void client_write(struct iothread *t, struct nbio *io)
 {
+	struct http_client *c = (struct http_client *)io;
 	// add to vec if necessary
 	// writev(...)
+	abort_client(t, c);
+	//nbio_inactive(t, io);
 }
 
 static void client_dtor(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
 	hgang_return(clients, c);
+	concurrency--;
 }
 
 static const struct nbio_ops client_ops = {
@@ -97,27 +103,33 @@ static void handle_connect(struct iothread *t, int s, void *priv)
 	concurrency++;
 }
 
+static uint32_t svr_addr;
+static uint16_t svr_port;
+
 static void ramp_up(struct iothread *t)
 {
 	unsigned int i;
-	//struct in_addr in;
-	//inet_aton("127.0.0.1", &in);
-	//in.s_addr
 
-	printf("Ramping up from %u to %u\n", concurrency, target_concurrency);
+	//printf("Ramping up from %u to %u\n", concurrency, target_concurrency);
 	for(i = concurrency; i < target_concurrency; i++) {
 		if ( !connecter(t, SOCK_STREAM, IPPROTO_TCP,
-			htonl(0x7f000001), 1234, handle_connect, NULL) )
+			svr_addr, svr_port, handle_connect, NULL) )
 			break;
 	}
 
 	max_concurrency = i;
-	printf(" - max_concurrency = %u\n", i);
+	if ( max_concurrency < target_concurrency )
+		printf(" - max_concurrency = %u\n", i);
 }
 
 int main(int argc, char **argv)
 {
 	struct iothread iothread;
+	struct in_addr in;
+
+	inet_aton("127.0.0.1", &in);
+	svr_addr = in.s_addr;
+	svr_port = 1234;
 
 	clients = hgang_new(sizeof(struct http_client), 0);
 	if ( NULL == clients )
@@ -127,11 +139,13 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 
 	target_concurrency = 1000;
-	ramp_up(&iothread);
 
+	ramp_up(&iothread);
 	do {
 		nbio_pump(&iothread, -1);
+		ramp_up(&iothread);
 	}while ( !list_empty(&iothread.active) );
+
 	nbio_fini(&iothread);
 	return EXIT_SUCCESS;
 }
