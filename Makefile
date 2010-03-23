@@ -2,7 +2,7 @@ CC = $(CROSS_COMPILE)gcc
 LD = $(CROSS_COMPILE)ld
 AR = $(CROSS_COMPILE)ar
 
-EXTRA_DEFS = $(OS_CFLAGS) -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
+EXTRA_DEFS = -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
 CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
 
 HTTPD_BIN = httpd
