@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -11,15 +12,89 @@
 #include <ashttpd-buf.h>
 #include <hgang.h>
 
+#define MAX_PIPELINE		8
+
+#define CLIENT_RX_HEADER	0
+#define CLIENT_RX_DATA		1
+
+struct http_client {
+	struct nbio	c_nbio;
+
+	/* -- tx */
+	struct iovec	c_req[3 * MAX_PIPELINE];
+	unsigned int	c_num_vec;
+	unsigned int	c_cur_vec;
+	struct mnode	*c_markov;
+
+	/* -- rx */
+	struct http_buf	*c_resp;
+	unsigned int	c_rx_state;
+	size_t		c_rx_clen;
+};
+
 static unsigned int target_concurrency;
 static unsigned int max_concurrency;
 static unsigned int concurrency;
+static hgang_t clients;
+
+static struct mnode *markov_step(struct mnode *n)
+{
+	if ( NULL == n )
+		// n == initial;
+		;
+	// next node
+	return NULL;
+}
+
+static void abort_client(struct iothread *t, struct http_client *c)
+{
+	fd_close(c->c_nbio.fd);
+	c->c_nbio.fd = -1;
+	nbio_del(t, &c->c_nbio);
+}
+
+static void advance_vec(struct http_client *c, size_t bytes)
+{
+}
+
+static void client_read(struct iothread *t, struct nbio *io)
+{
+	// read response
+}
+
+static void client_write(struct iothread *t, struct nbio *io)
+{
+	// add to vec if necessary
+	// writev(...)
+}
+
+static void client_dtor(struct iothread *t, struct nbio *io)
+{
+	struct http_client *c = (struct http_client *)io;
+	hgang_return(clients, c);
+}
+
+static const struct nbio_ops client_ops = {
+	.read = client_read,
+	.write = client_write,
+	.dtor = client_dtor,
+};
 
 static void handle_connect(struct iothread *t, int s, void *priv)
 {
-	printf("Connection established\n");
+	struct http_client *c;
+
+	c = hgang_alloc0(clients);
+	if ( NULL == c ) {
+		fprintf(stderr, "OOM on client\n");
+		return;
+	}
+
+	c->c_nbio.fd = s;
+	c->c_nbio.ops = &client_ops;
+	c->c_markov = markov_step(NULL);
+	nbio_add(t, &c->c_nbio, NBIO_WRITE);
 	concurrency++;
-	//fd_close(s);
 }
 
 static void ramp_up(struct iothread *t)
@@ -43,6 +118,10 @@ static void ramp_up(struct iothread *t)
 int main(int argc, char **argv)
 {
 	struct iothread iothread;
+
+	clients = hgang_new(sizeof(struct http_client), 0);
+	if ( NULL == clients )
+		return EXIT_FAILURE;
 
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;

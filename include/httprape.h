@@ -13,7 +13,7 @@
 #include <vec.h>
 #include <os.h>
 
-struct node {
+struct mnode {
 	struct ro_vec	n_uri;
 	unsigned int	n_num_sub;
 	unsigned int	n_num_edges;
@@ -21,10 +21,10 @@ struct node {
 	struct edge	*n_edges;
 };
 
-struct edge {
+struct medge {
 	uint16_t	e_prob_min;
 	uint16_t	e_prob_max;
-	struct node	e_node;
+	struct mnode	*e_node;
 };
 
 #endif /* _ASHTTPD_H */
