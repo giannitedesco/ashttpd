@@ -307,7 +307,7 @@ static int response_400(struct iothread *t, struct _http_conn *h)
 }
 
 static int handle_get(struct iothread *t, struct _http_conn *h,
-			struct http_request *r)
+			struct http_request *r, int head)
 {
 	const struct webroot_name *n;
 	unsigned int code, mime_type;
@@ -335,7 +335,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		code = 200;
 	}
 
-	if ( h->h_data_len ) {
+	if ( h->h_data_len && !head ) {
 		if ( !_io_prep(t, h) ) {
 			/* FIXME: insufficient resources http code */
 			return 0;
@@ -354,6 +354,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			"Content-Type: %s\r\n"
 			"Content-Length: %u\r\n"
 			"Connection: %s\r\n"
+			"Server: ashttpd, experimental l33tness\r\n"
 			"\r\n",
 			code,
 			(code == 200) ? "OK": "Not Found",
@@ -368,6 +369,8 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	}
 
 	buf_done_write(h->h_res, len);
+	if ( head )
+		h->h_data_len = 0;
 	return 1;
 }
 
@@ -418,11 +421,13 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		h->h_conn_close = 1;
 	}
 
-	if ( vstrcmp_fast(&r.method, "GET") ) {
+	if ( !vstrcmp_fast(&r.method, "GET") ) {
 		/* FIXME: bad request */
-		ret = response_400(t, h);
+		ret = handle_get(t, h, &r, 0);
+	}else if ( !vstrcmp_fast(&r.method, "HEAD") ) {
+		ret = handle_get(t, h, &r, 1);
 	}else{
-		ret = handle_get(t, h, &r);
+		ret = response_400(t, h);
 	}
 
 	if ( !ret ) {
