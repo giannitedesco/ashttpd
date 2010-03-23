@@ -23,8 +23,14 @@
 struct listener {
 	struct nbio io;
 	listener_cbfn_t cbfn;
+	listener_oom_t oom;
 	void *priv;
 };
+
+void listener_wake(struct iothread *t, struct nbio *io)
+{
+	nbio_wake(t, io, NBIO_READ);
+}
 
 static void listener_read(struct iothread *t, struct nbio *io)
 {
@@ -40,8 +46,17 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	fd = accept(l->io.fd, (struct sockaddr *)&sa, &salen);
 #endif
 	if ( fd < 0 ) {
-		if ( errno == EAGAIN )
+		switch(errno) {
+		case ENFILE:
+		case EMFILE:
+		case ENOMEM:
+		case ENOBUFS:
+			(*l->oom)(t, io);
+			break;
+		case EAGAIN:
 			nbio_inactive(t, &l->io);
+			break;
+		}
 		return;
 	}
 
@@ -54,7 +69,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	//	inet_ntoa(sa.sin_addr),
 	//	htons(sa.sin_port));
 
-	l->cbfn(t, fd, l->priv);
+	(*l->cbfn)(t, fd, l->priv);
 
 	/* Make sure to service just-accepted connection before
 	 * acccepting new ones Probably it's petty, sure it's a bit
@@ -75,19 +90,22 @@ static struct nbio_ops listener_ops = {
 	.dtor = listener_dtor,
 };
 
-struct nbio *listener_inet(int type, int proto, uint32_t addr, uint16_t port,
-				listener_cbfn_t cb, void *priv)
+int listener_inet(struct iothread *t, int type, int proto,
+				uint32_t addr, uint16_t port,
+				listener_cbfn_t cb, void *priv,
+				listener_oom_t oom)
 {
 	struct sockaddr_in sa;
 	struct listener *l;
 
 	l = calloc(1, sizeof(*l));
 	if ( l == NULL )
-		return NULL;
+		return 0;
 
 	INIT_LIST_HEAD(&l->io.list);
 
 	l->cbfn = cb;
+	l->oom = oom;
 	l->priv = priv;
 
 	l->io.fd = socket(PF_INET, type, proto);
@@ -117,16 +135,12 @@ struct nbio *listener_inet(int type, int proto, uint32_t addr, uint16_t port,
 
 	l->io.ops = &listener_ops;
 
-	return &l->io;
+	nbio_add(t, &l->io, NBIO_READ);
+	return 1;
 
 err_close:
 	fd_close(l->io.fd);
 err_free:
 	free(l);
-	return NULL;
-}
-
-void listener_add(struct iothread *t, struct nbio *io)
-{
-	nbio_add(t, io, NBIO_READ);
+	return 0;
 }

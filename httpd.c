@@ -51,7 +51,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -77,6 +77,23 @@ static const char * const resp400 =
 #define _io_abort	(*fio_current->abort)
 #define _io_fini	(*fio_current->fini)
 
+static LIST_HEAD(oomq);
+
+static void wake_listeners(struct iothread *t)
+{
+	struct nbio *io, *tmp;
+
+	dprintf("http_listener: waking all on wait queue\n");
+	list_for_each_entry_safe(io, tmp, &oomq, list)
+		listener_wake(t, io);
+}
+
+static void http_oom(struct iothread *t, struct nbio *listener)
+{
+	dprintf("http_listener: no more resources\n");
+	nbio_to_waitq(t, listener, &oomq);
+}
+
 static void http_kill(struct iothread *t, struct _http_conn *h)
 {
 	/* ma have got here already due to data complete in a non
@@ -90,6 +107,8 @@ static void http_kill(struct iothread *t, struct _http_conn *h)
 	h->h_nbio.fd = -1;
 	assert(concurrency);
 	--concurrency;
+	if ( !list_empty(&oomq) )
+		wake_listeners(t);
 
 	switch(h->h_state) {
 	case HTTP_CONN_REQUEST:
@@ -596,7 +615,6 @@ int main(int argc, char **argv)
 {
 	const char * const webroot_fn = "webroot.objdb";
 	struct iothread iothread;
-	struct nbio *io;
 
 	fio_current = io_model((argc > 1) ? argv[1] : NULL);
 	printf("data: %s model\n", fio_current->label);
@@ -616,14 +634,10 @@ int main(int argc, char **argv)
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
 
-	io = listener_inet(SOCK_STREAM, IPPROTO_TCP,
-				0, 80, http_conn, NULL);
-	if ( NULL == io )
-		io = listener_inet(SOCK_STREAM, IPPROTO_TCP,
-				0, 1234, http_conn, NULL);
-	if ( NULL == io )
-		return EXIT_FAILURE;
-	listener_add(&iothread, io);
+	listener_inet(&iothread, SOCK_STREAM, IPPROTO_TCP,
+			0, 80, http_conn, NULL, http_oom);
+	listener_inet(&iothread, SOCK_STREAM, IPPROTO_TCP,
+			0, 1234, http_conn, NULL, http_oom);
 
 	if ( !_io_init(&iothread, webroot_fd) ) {
 		return EXIT_FAILURE;
