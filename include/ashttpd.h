@@ -13,12 +13,6 @@
 #include <vec.h>
 #include <os.h>
 
-#define BM_SKIP_LEN 0x100
-_private void bm_skip(const uint8_t *x, size_t plen, int *skip);
-_private const uint8_t *bm_find(const uint8_t *n, size_t nlen,
-			const uint8_t *hs, size_t hlen,
-			int *skip);
-
 struct webroot_name {
 	struct ro_vec name;
 	unsigned int mime_type;

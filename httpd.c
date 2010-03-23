@@ -14,6 +14,21 @@
 #include <http-req.h>
 #include <hgang.h>
 
+/* State machine for incremental HTTP request parse */
+#define RSTATE_INITIAL		0
+#define RSTATE_CR		1
+#define RSTATE_LF		2
+#define RSTATE_CRLF		3
+#define RSTATE_LFCR		4
+#define RSTATE_CRLFCR		5
+#define RSTATE_LFLF		6
+#define RSTATE_CRLFLF		7
+#define RSTATE_LFCRLF		8
+#define RSTATE_CRLFCRLF		9
+
+#define RSTATE_NR_NONTERMINAL	RSTATE_LFLF
+#define RSTATE_TERMINAL(x)	((x) >= RSTATE_LFLF)
+
 #define HTTP_CONN_REQUEST	0
 /* FIXME: gobble any POST data */
 #define HTTP_CONN_HEADER	1
@@ -21,9 +36,11 @@
 #define HTTP_CONN_DEAD		3
 struct _http_conn {
 	struct nbio	h_nbio;
-	unsigned short	h_state;
+	unsigned char	h_state;
+	unsigned char	h_rstate;
 	unsigned short	h_io_state;
 
+	const uint8_t	*h_rptr;
 	struct http_buf	*h_req;
 	struct http_buf	*h_res;
 
@@ -34,7 +51,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -43,8 +60,6 @@ struct _http_conn {
 static struct http_fio *fio_current;
 static unsigned int concurrency;
 static hgang_t conns;
-static int rt_skip[BM_SKIP_LEN];
-static const uint8_t http_req_terminator[4] = "\r\n\r\n";
 static int webroot_fd = -1;
 
 static const char * const resp400 =
@@ -402,6 +417,8 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	buf_read(h->h_req, &sz);
 	if ( sz ) {
 		buf_reset(h->h_req);
+		h->h_rptr = h->h_req->b_base;
+		h->h_rstate = RSTATE_INITIAL;
 		return;
 	}else{
 		buf_free_req(h->h_req);
@@ -409,9 +426,45 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	}
 }
 
+static int http_parse_incremental(struct _http_conn *h)
+{
+	static const uint8_t cr_map[RSTATE_NR_NONTERMINAL] = {
+			[RSTATE_INITIAL] = RSTATE_CR,
+			[RSTATE_CR] = RSTATE_CR,
+			[RSTATE_LF] = RSTATE_LFCR,
+			[RSTATE_CRLF] = RSTATE_CRLFCR,
+			[RSTATE_LFCR] = RSTATE_CR,
+			[RSTATE_CRLFCR] = RSTATE_CR};
+	static const uint8_t lf_map[RSTATE_NR_NONTERMINAL] = {
+			[RSTATE_INITIAL] = RSTATE_LF,
+			[RSTATE_CR] = RSTATE_CRLF,
+			[RSTATE_LF] = RSTATE_LFLF,
+			[RSTATE_CRLF] = RSTATE_CRLFLF,
+			[RSTATE_LFCR] = RSTATE_LFCRLF,
+			[RSTATE_CRLFCR] = RSTATE_CRLFCRLF};
+
+	for(; h->h_rptr < h->h_req->b_write; h->h_rptr++) {
+		switch(h->h_rptr[0]) {
+		case '\r':
+			assert(h->h_rstate < RSTATE_NR_NONTERMINAL);
+			h->h_rstate = cr_map[h->h_rstate];
+			break;
+		case '\n':
+			assert(h->h_rstate < RSTATE_NR_NONTERMINAL);
+			h->h_rstate = lf_map[h->h_rstate];
+			break;
+		default:
+			h->h_rstate = RSTATE_INITIAL;
+			continue;
+		}
+		if ( RSTATE_TERMINAL(h->h_rstate) )
+			return 1;
+	}
+	return 0;
+}
+
 static void http_read(struct iothread *t, struct nbio *nbio)
 {
-	const uint8_t *hs, *n;
 	struct _http_conn *h;
 	uint8_t *ptr;
 	ssize_t ret;
@@ -428,6 +481,8 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 			http_kill(t, h);
 			return;
 		}
+		h->h_rptr = h->h_req->b_base;
+		h->h_rstate = RSTATE_INITIAL;
 	}
 
 	ptr = buf_write(h->h_req, &sz);
@@ -450,14 +505,8 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 		ret, ret, ptr);
 	buf_done_write(h->h_req, ret);
 
-	/* FIXME: can handle LF/CRLF/mixed more efficiently than this */
-	dprintf("Searching for terminating %u bytes\n",
-		sizeof(http_req_terminator));
-	hs = buf_read(h->h_req, &sz);
-	n = bm_find(http_req_terminator, sizeof(http_req_terminator),
-		hs, sz, rt_skip);
-	if ( NULL == n ) {
-		dprintf("Nah, waiting for more data\n");
+	if ( !http_parse_incremental(h) ) {
+		dprintf("no request yet, waiting for more data\n");
 		return;
 	}
 
@@ -563,8 +612,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "conns: %s\n", os_err());
 		return EXIT_FAILURE;
 	}
-
-	bm_skip(http_req_terminator, sizeof(http_req_terminator), rt_skip);
 
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
