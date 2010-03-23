@@ -1,5 +1,68 @@
 #!/usr/bin/python
 from sys import stdin
+try:
+	from pydot import Dot, Node, Edge, Graph
+	write_dot = True
+except ImportError:
+	write_dot = False
+
+def do_node(dot, visitmap, node):
+	if visitmap.has_key(node):
+		return visitmap[node]
+
+	if node.uri == None:
+		n = Node("%r"%node)
+		n.set_label("ENTRY")
+		n.set_color("#b0ffb0")
+	else:
+		n = Node("%s"%node)
+		n.set_label("%s"%node)
+	n.set_style("filled")
+	dot.add_node(n)
+	visitmap[node] = n
+
+	for (u, w) in node.links:
+		c = do_node(dot, visitmap, u)
+		e = Edge(n, c)
+		e.set_label("Weight = %u"%w)
+		dot.add_edge(e)
+
+	for sub in node.sub_uris:
+		sn = Node("t_" + sub)
+		sn.set_label("ANCILLARY\\n%s"%sub)
+		sn.set_color("#ffb0b0")
+		sn.set_style("filled")
+		sn.set_shape("rectangle")
+		dot.add_node(sn)
+		e = Edge(n, sn)
+		dot.add_edge(e)
+
+	return n
+
+def write_graphviz_model(fn, initial):
+	g = Graph()
+	g.set_label("HTTP client markov model")
+	dot = Dot(g)
+	dot.set_rankdir("LR")
+	dot.set_label("HTTP client markov model")
+	visited = {}
+	do_node(dot, visited, initial)
+	dot.write(fn)
+	print "written: %s"%fn
+
+def do_get_nodelist(visitmap, list, node):
+	if visitmap.has_key(node):
+		return
+	visitmap[node] = True
+	list.append(node)
+	for (u, w) in node.links:
+		do_get_nodelist(visitmap, list, u)
+
+def get_nodelist(initial):
+	visitmap = {}
+	list = []
+	do_get_nodelist(visitmap, list, initial)
+	return list
 
 class HTTPObject:
 	def __init__(self, uri):
@@ -59,9 +122,15 @@ if __name__ == '__main__':
 	initial.resolve_links(objmap)
 	del objmap
 
-	print
-	print "Marov model: initial states:"
-	for (u, w) in initial.links:
-		print "  %-20s weight=%u"%(u, w)
-		for x in u.sub_uris:
-			print "   - %s"%x
+	if write_dot:
+		write_graphviz_model("markov.dot", initial)
+	
+	f = open("markov.h", 'w')
+	nodelist = get_nodelist(initial)
+	print "In-order traversal of graph:"
+	for x in nodelist:
+		if x.uri:
+			print x
+		else:
+			print "INITIAL"
+	del f
