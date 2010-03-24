@@ -6,15 +6,16 @@ struct http_request {
 	struct ro_vec	method;
 	struct ro_vec	host;
 	struct ro_vec	uri;
-	struct ro_vec	uri_path;
-	struct ro_vec	uri_query;
-	struct ro_vec	connection;
+	struct ro_vec	query;
+#if 0
+	/* FUCK IT: no support for POST method */
 	struct ro_vec	transfer_enc;
 	struct ro_vec	content_type;
 	struct ro_vec	content_enc;
-	struct ro_vec	content;
+#endif
+	size_t		content_len;
 	http_ver_t 	proto_vers;
-	uint8_t 	_pad0;
+	uint8_t 	conn_close;
 	uint16_t 	port;
 };
 _private size_t http_req(struct http_request *r,

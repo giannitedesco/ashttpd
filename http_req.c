@@ -8,20 +8,24 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 	const uint8_t *end = ptr + len;
 	int clen = -1;
 	size_t hlen;
-	struct ro_vec pv = {0,};
+	struct ro_vec pv = {0,}, connection = {0,};
 	struct http_hcb hcb[] = {
 		{"method", htype_string, {.vec = &r->method}},
 		{"uri", htype_string, {.vec = &r->uri}},
 		{"protocol", htype_string, {.vec = &pv}},
 		{"Host", htype_string , {.vec = &r->host}},
-		{"Connection", htype_string, { .vec = &r->connection}},
+		{"Connection", htype_string, { .vec = &connection}},
+#if 0
 		{"Content-Type", htype_string,
 					{.vec = &r->content_type}},
+#endif
 		{"Content-Length", htype_int, {.val = &clen}},
+#if 0
 		{"Content-Encoding", htype_string,
 					{.vec = &r->content_enc}},
 		{"Transfer-Encoding", htype_string,
 					{.vec = &r->transfer_enc}},
+#endif
 	};
 
 	/* Do the decode */
@@ -32,7 +36,26 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 	r->proto_vers = http_proto_version(&pv);
 
 	if ( clen > 0 )
-		r->content.v_len = clen;
+		r->content_len = clen;
+
+	if ( r->proto_vers >= HTTP_VER_1_1 ) {
+		static const struct ro_vec close_token = {
+			.v_ptr = (uint8_t *)"Close",
+			.v_len = 5,
+		};
+		if ( !vcasecmp_fast(&connection, &close_token) ) {
+			r->conn_close = 1;
+		}else{
+			r->conn_close = 0;
+		}
+	}else{
+		/* For HTTP/1.0 close connection regardless of connection
+		 * header token. Due to buggy proxies which may pass on
+		 * connection: Keep-Alive token without understanding it
+		 * resulting in a hung connection
+		 */
+		r->conn_close = 1;
+	}
 
 	/* Extract the port from the host header */
 	r->port = HTTP_DEFAULT_PORT;

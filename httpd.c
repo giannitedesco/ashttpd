@@ -51,7 +51,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -383,11 +383,17 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 
 	assert(h->h_state == HTTP_CONN_REQUEST);
 
-	memset(&r, 0, sizeof(r));
 	ptr = buf_read(h->h_req, &sz);
+	memset(&r, 0, sizeof(r));
 	hlen = http_req(&r, ptr, sz);
 	if ( 0 == hlen ) {
 		/* FIXME: error 400 */
+		http_kill(t, h);
+		return;
+	}
+
+	if ( r.content_len ) {
+		printf("Argh, Content-Length set on request\n");
 		http_kill(t, h);
 		return;
 	}
@@ -402,24 +408,7 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
 	h->h_state = HTTP_CONN_HEADER;
 
-	if ( r.proto_vers >= HTTP_VER_1_1 ) {
-		static const struct ro_vec close_token = {
-			.v_ptr = (uint8_t *)"Close",
-			.v_len = 5,
-		};
-		if ( !vcasecmp_fast(&r.connection, &close_token) ) {
-			h->h_conn_close = 1;
-		}else{
-			h->h_conn_close = 0;
-		}
-	}else{
-		/* For HTTP/1.0 close connection regardless of connection
-		 * header token. Due to buggy proxies which may pass on
-		 * connection: Keep-Alive token without understanding it
-		 * resulting in a hung connection
-		 */
-		h->h_conn_close = 1;
-	}
+	h->h_conn_close = r.conn_close;
 
 	if ( !vstrcmp_fast(&r.method, "GET") ) {
 		/* FIXME: bad request */
