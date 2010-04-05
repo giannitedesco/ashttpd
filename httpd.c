@@ -14,21 +14,6 @@
 #include <http-req.h>
 #include <hgang.h>
 
-/* State machine for incremental HTTP request parse */
-#define RSTATE_INITIAL		0
-#define RSTATE_CR		1
-#define RSTATE_LF		2
-#define RSTATE_CRLF		3
-#define RSTATE_LFCR		4
-#define RSTATE_CRLFCR		5
-#define RSTATE_LFLF		6
-#define RSTATE_CRLFLF		7
-#define RSTATE_LFCRLF		8
-#define RSTATE_CRLFCRLF		9
-
-#define RSTATE_NR_NONTERMINAL	RSTATE_LFLF
-#define RSTATE_TERMINAL(x)	((x) >= RSTATE_LFLF)
-
 #define HTTP_CONN_REQUEST	0
 /* FIXME: gobble any POST data */
 #define HTTP_CONN_HEADER	1
@@ -439,43 +424,6 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	}
 }
 
-static int http_parse_incremental(struct _http_conn *h)
-{
-	static const uint8_t cr_map[RSTATE_NR_NONTERMINAL] = {
-			[RSTATE_INITIAL] = RSTATE_CR,
-			[RSTATE_CR] = RSTATE_CR,
-			[RSTATE_LF] = RSTATE_LFCR,
-			[RSTATE_CRLF] = RSTATE_CRLFCR,
-			[RSTATE_LFCR] = RSTATE_CR,
-			[RSTATE_CRLFCR] = RSTATE_CR};
-	static const uint8_t lf_map[RSTATE_NR_NONTERMINAL] = {
-			[RSTATE_INITIAL] = RSTATE_LF,
-			[RSTATE_CR] = RSTATE_CRLF,
-			[RSTATE_LF] = RSTATE_LFLF,
-			[RSTATE_CRLF] = RSTATE_CRLFLF,
-			[RSTATE_LFCR] = RSTATE_LFCRLF,
-			[RSTATE_CRLFCR] = RSTATE_CRLFCRLF};
-
-	for(; h->h_rptr < h->h_req->b_write; h->h_rptr++) {
-		switch(h->h_rptr[0]) {
-		case '\r':
-			assert(h->h_rstate < RSTATE_NR_NONTERMINAL);
-			h->h_rstate = cr_map[h->h_rstate];
-			break;
-		case '\n':
-			assert(h->h_rstate < RSTATE_NR_NONTERMINAL);
-			h->h_rstate = lf_map[h->h_rstate];
-			break;
-		default:
-			h->h_rstate = RSTATE_INITIAL;
-			continue;
-		}
-		if ( RSTATE_TERMINAL(h->h_rstate) )
-			return 1;
-	}
-	return 0;
-}
-
 static void http_read(struct iothread *t, struct nbio *nbio)
 {
 	struct _http_conn *h;
@@ -518,7 +466,8 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 		ret, ret, ptr);
 	buf_done_write(h->h_req, ret);
 
-	if ( !http_parse_incremental(h) ) {
+	if ( !http_parse_incremental(&h->h_rstate,
+					&h->h_rptr, h->h_req->b_write) ) {
 		dprintf("no request yet, waiting for more data\n");
 		return;
 	}
