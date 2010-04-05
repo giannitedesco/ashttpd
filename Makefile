@@ -53,7 +53,7 @@ ALL_TARGETS = $(BINS)
 
 TARGET = all
 
-.PHONY: all clean dep root
+.PHONY: all clean dep root walk
 
 all: dep $(BINS)
 
@@ -78,9 +78,13 @@ $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJS) Make.dep
 
-root: webroot.h
 webroot.h: makeroot MANIFEST ROOT
 	./makeroot `cat ROOT` < MANIFEST
+root: webroot.h
+
+markov.c: mkmarkov WALK
+	./mkmarkov < WALK
+walk: markov.c
 
 ifeq (Make.dep, $(wildcard Make.dep))
 include Make.dep
