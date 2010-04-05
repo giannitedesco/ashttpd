@@ -116,7 +116,7 @@ static void http_kill(struct iothread *t, struct _http_conn *h)
 		assert(h->h_res == NULL);
 		break;
 	case HTTP_CONN_HEADER:
-		assert(h->h_res == NULL);
+		assert(h->h_req == NULL);
 		buf_free_res(h->h_res);
 		/* fall through */
 	case HTTP_CONN_DATA:
