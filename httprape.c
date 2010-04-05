@@ -11,6 +11,7 @@
 #include <nbio-connecter.h>
 #include <ashttpd-buf.h>
 #include <http-parse.h>
+#include <http-resp.h>
 #include <hgang.h>
 
 #if 0

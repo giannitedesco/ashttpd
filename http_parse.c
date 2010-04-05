@@ -59,8 +59,7 @@ void htype_int(struct http_hcb *h, struct ro_vec *v)
 }
 
 /* Same as int but ensure input is only 3 digits */
-#if 0
-static void htype_code(struct http_hcb *h, struct ro_vec *v)
+void htype_code(struct http_hcb *h, struct ro_vec *v)
 {
 	unsigned int val;
 	size_t len;
@@ -71,7 +70,6 @@ static void htype_code(struct http_hcb *h, struct ro_vec *v)
 	else
 		*h->u.u16 = val;
 }
-#endif
 
 /* Check if this header is one we want to store */
 static inline void dispatch_hdr(struct http_hcb *dcb,

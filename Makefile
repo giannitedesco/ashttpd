@@ -38,6 +38,7 @@ HTTPRAPE_LIBS =
 HTTPRAPE_OBJ = httprape.o \
 		markov.o \
 		http_parse.o \
+		http_resp.o \
 		http_buf.o \
 		nbio.o \
 		nbio-epoll.o \

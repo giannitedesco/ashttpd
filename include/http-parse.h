@@ -24,6 +24,7 @@ _private void htype_present(struct http_hcb *h, struct ro_vec *v);
 _private void htype_int(struct http_hcb *h, struct ro_vec *v);
 _private size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 				const uint8_t *p, const uint8_t *end);
+_private void htype_code(struct http_hcb *h, struct ro_vec *v);
 
 /* State machine for incremental HTTP request parse */
 #define RSTATE_INITIAL		0
