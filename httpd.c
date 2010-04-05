@@ -110,13 +110,13 @@ static void http_kill(struct iothread *t, struct _http_conn *h)
 	if ( !list_empty(&oomq) )
 		wake_listeners(t);
 
+	buf_free_req(h->h_req);
+
 	switch(h->h_state) {
 	case HTTP_CONN_REQUEST:
-		buf_free_req(h->h_req);
 		assert(h->h_res == NULL);
 		break;
 	case HTTP_CONN_HEADER:
-		assert(h->h_req == NULL);
 		buf_free_res(h->h_res);
 		/* fall through */
 	case HTTP_CONN_DATA:
