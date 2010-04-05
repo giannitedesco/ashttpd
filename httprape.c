@@ -26,6 +26,7 @@
 #define CLIENT_TX_THINK		0
 #define CLIENT_TX_PAGE_IMPRESS	1
 #define CLIENT_TX_ANCILLARY	2
+#define CLIENT_TX_FINAL_FLUSH	3
 
 struct http_client {
 	struct nbio	c_nbio;
@@ -45,6 +46,8 @@ struct http_client {
 	struct http_buf	*c_rx_buf;
 	size_t		c_rx_clen;
 	unsigned int	c_rx_sub_idx;
+	unsigned char	c_rx_rstate;
+	const uint8_t	*c_rx_rptr;
 
 	http_ver_t	c_http_proto_ver;
 };
@@ -101,7 +104,6 @@ static const struct mnode *markov_step(const struct mnode *n)
 
 	if ( NULL == n )
 		n = markov_root;
-	// next node
 
 	if ( !n->n_num_edges )
 		return NULL;
@@ -132,20 +134,96 @@ static void abort_client(struct iothread *t, struct http_client *c)
 static void client_read(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
-	// read response
+	uint8_t *wptr;
+	ssize_t ret;
+	size_t wsz;
+
+	printf("Read response\n");
+
+	if( NULL == c->c_rx_buf ) {
+		c->c_rx_buf = buf_alloc_res();
+		if ( NULL == c->c_rx_buf ) {
+			printf("OOM on res buffer\n");
+			abort_client(t, c);
+			return;
+		}
+
+		c->c_rx_rptr = c->c_rx_buf->b_base;
+		c->c_rx_rstate = RSTATE_INITIAL;
+	}
+
+	wptr = buf_write(c->c_rx_buf, &wsz);
+	if ( 0 == wsz ) {
+		printf("OOM on res\n");
+		abort_client(t, c);
+		return;
+	}
+
+	ret = recv(c->c_nbio.fd, wptr, wsz, 0);
+	if ( ret < 0 && errno == EAGAIN ) {
+		nbio_inactive(t, &c->c_nbio);
+		return;
+	}else if ( ret <= 0 ) {
+		abort_client(t, c);
+		return;
+	}
+
+	dprintf("Received %u bytes: %.*s\n",
+		ret, ret, ptr);
+	buf_done_write(c->c_rx_buf, ret);
+
+	if ( !http_parse_incremental(&c->c_rx_rstate,
+					&c->c_rx_rptr,
+					c->c_rx_buf->b_write) ) {
+		printf("no response yet, waiting for more data\n");
+		return;
+	}
+
+	do {
+		const uint8_t *rptr;
+		size_t rsz;
+
+		rptr = buf_read(c->c_rx_buf, &rsz);
+		printf("HTTP: %.*s\n", c->c_rx_rptr - rptr, rptr);
+		printf("DATA: %.*s\n", (rptr + rsz) - c->c_rx_rptr,
+			c->c_rx_rptr);
+	}while(0);
+
 	abort_client(t, c);
 }
 
-static int do_http_req(struct http_client *c, const struct ro_vec *vec)
+static int do_http_req(struct http_client *c, const struct ro_vec *uri)
 {
+	uint8_t *wptr;
+	size_t wsz;
+	int len;
+
+	wptr = buf_write(c->c_tx_buf, &wsz);
+	if ( NULL == wptr )
+		return 0;
+
+	len = snprintf((char *)wptr, wsz,
+			"GET %.*s HTTP/1.1\r\n"
+			"Host: 127.0.0.1:1234\r\n"
+			"Connection: Keep-Alive\r\n"
+			"User-Agent: httprape\r\n"
+			"\r\n", uri->v_len, uri->v_ptr);
+	if ( len < 0 )
+		len = 0;
+	if ( (size_t)len >= wsz )
+		return 0;
+
+	buf_done_write(c->c_tx_buf, len);
 	return 1;
 }
 
 static void client_write(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
-	//const uint8_t *rptr;
-	//size_t rsz;
+	const uint8_t *rptr;
+	int flags = MSG_NOSIGNAL;
+	size_t rsz;
+	ssize_t ret;
 
 	switch(c->c_tx_state) {
 	case CLIENT_TX_THINK:
@@ -170,7 +248,20 @@ static void client_write(struct iothread *t, struct nbio *io)
 		break;
 	}
 
-	/* TODO: push output buffer */
+	rptr = buf_read(c->c_tx_buf, &rsz);
+
+	ret = send(c->c_nbio.fd, rptr, rsz, flags);
+	if ( ret < 0 && errno == EAGAIN ) {
+		nbio_inactive(t, &c->c_nbio);
+	}else if ( ret <= 0 )
+		goto die;
+
+	rsz = buf_done_read(c->c_tx_buf, ret);
+	if ( rsz == 0 ) {
+		buf_reset(c->c_tx_buf);
+		c->c_rx_state = CLIENT_RX_HEADER;
+		nbio_set_wait(t, &c->c_nbio, NBIO_READ);
+	}
 
 	return;
 die:
@@ -214,7 +305,7 @@ static void ramp_up(struct iothread *t)
 {
 	unsigned int i;
 
-	//printf("Ramping up from %u to %u\n", concurrency, target_concurrency);
+	dprintf("Ramping up from %u to %u\n", concurrency, target_concurrency);
 	for(i = concurrency; i < target_concurrency; i++) {
 		if ( !connecter(t, SOCK_STREAM, IPPROTO_TCP,
 			svr_addr, svr_port, handle_connect, NULL) )
@@ -247,7 +338,7 @@ int main(int argc, char **argv)
 	ramp_up(&iothread);
 	do {
 		nbio_pump(&iothread, -1);
-		ramp_up(&iothread);
+		//ramp_up(&iothread);
 	}while ( !list_empty(&iothread.active) );
 
 	nbio_fini(&iothread);
