@@ -141,6 +141,9 @@ class NameDB:
 		n = self.__names.keys()
 		n.sort()
 		return n.__iter__()
+
+	# FIXME: use workset URI so that workset and non-workset data
+	# can live together in same objdb
 	def __workset(self):
 		wsize = len(self.__names.keys())
 		print "Workset size %u"%wsize
@@ -206,6 +209,16 @@ class NameDB:
 		f.write("const size_t obj404_f_len = %u;\n"%o404.flen)
 		f.write("const unsigned int obj404_mime_type")
 		f.write(" = %u;\n"%mimelist.index(o404.mime_type))
+	
+	def write_gidx_data(self, fn):
+		f = open(fn, 'w')
+		o404 = self.__objects.get_404()
+		for n in self:
+			o = self.__names[n]
+			if o == o404:
+				continue
+			f.write("'%s', NULL, '%s', 0, %u, %u\n"%\
+				(n, o.mime_type, o.fpos, o.flen))
 
 def webmap(webroot, path):
 	ret = os.path.join(webroot, path)
@@ -244,3 +257,4 @@ if __name__ == '__main__':
 		ndb[uri] = webmap(webroot, path)
 	
 	ndb.write("webroot.objdb", "webroot.h", ws)
+	ndb.write_gidx_data("webroot.gidx.data")

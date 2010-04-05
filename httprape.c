@@ -1,49 +1,125 @@
 #include <sys/socket.h>
-#include <sys/uio.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <limits.h>
 
 #include <httprape.h>
 #include <nbio-connecter.h>
 #include <ashttpd-buf.h>
+#include <http-parse.h>
 #include <hgang.h>
 
-#define MAX_PIPELINE		8
+#if 0
+#define dprintf printf
+#else
+#define dprintf(x...) do {} while(0)
+#endif
 
 #define CLIENT_RX_HEADER	0
-#define CLIENT_RX_DATA		1
+#define CLIENT_RX_PAGE		1
+#define CLIENT_RX_ANCILLARY	2
+
+#define CLIENT_TX_THINK		0
+#define CLIENT_TX_PAGE_IMPRESS	1
+#define CLIENT_TX_ANCILLARY	2
 
 struct http_client {
 	struct nbio	c_nbio;
 
+	unsigned short	c_rx_state;
+	unsigned short	c_tx_state;
+
+	const struct mnode	*c_markov;
+
 	/* -- tx */
-	struct iovec	c_req[3 * MAX_PIPELINE];
-	unsigned int	c_num_vec;
-	unsigned int	c_cur_vec;
-	struct mnode	*c_markov;
+	struct http_buf	*c_tx_buf;
+	unsigned short	c_tx_inbuf;
+	unsigned short	c_tx_inpipe;
+	unsigned int	c_tx_sub_idx;
 
 	/* -- rx */
-	struct http_buf	*c_resp;
-	unsigned int	c_rx_state;
+	struct http_buf	*c_rx_buf;
 	size_t		c_rx_clen;
+	unsigned int	c_rx_sub_idx;
+
+	http_ver_t	c_http_proto_ver;
 };
 
 static unsigned int target_concurrency;
 static unsigned int max_concurrency;
 static unsigned int concurrency;
+static const unsigned int pipeline_depth = 0;
 static hgang_t clients;
 
-static struct mnode *markov_step(struct mnode *n)
+#if USE_SYSTEM_RANDOM
+static uint32_t get_random_bits(unsigned int bits)
 {
+	assert(bits <= 32);
+	abort(); /* not implemented */
+}
+#else
+#define ASSUME_RAND_MAX_BITS ((sizeof(int) << 3) - 1)
+static void __attribute__((constructor)) prng_ctor(void)
+{
+	assert(RAND_MAX >= (1 << ASSUME_RAND_MAX_BITS));
+	srand(0x31337);
+}
+
+static uint32_t get_random_bits(unsigned int bits)
+{
+	static unsigned int cached_bits;
+	static int rbits;
+	uint32_t ret;
+
+	assert(bits <= ASSUME_RAND_MAX_BITS);
+
+	if ( bits > cached_bits ) {
+		ret = (rbits & (cached_bits - 1)) << cached_bits;
+		bits -= cached_bits;
+
+		rbits = rand();
+		cached_bits = ASSUME_RAND_MAX_BITS;
+	}else{
+		ret = 0;
+	}
+
+	ret |= rbits & ((1 << bits) - 1);
+	rbits >>= bits;
+	cached_bits -= bits;
+	return ret;
+}
+#endif
+
+static const struct mnode *markov_step(const struct mnode *n)
+{
+	unsigned int rb, i;
+	unsigned int pmin, pmax;
+
 	if ( NULL == n )
-		// n == initial;
-		;
+		n = markov_root;
 	// next node
-	return NULL;
+
+	if ( !n->n_num_edges )
+		return NULL;
+
+	rb = get_random_bits(n->n_edge_prob_bits);
+	dprintf("%u bits of random = %u\n", n->n_edge_prob_bits, rb);
+	rb %= n->n_edge_prob_max;
+	dprintf("%u clamped to edge prob max (%u)\n", rb, n->n_edge_prob_max);
+
+	for(pmin = i = 0; i < n->n_num_edges; i++) {
+		pmax = n->n_edges[i].e_prob_max;
+		dprintf(" edge[%u] = <%u, %u>\n", i, pmin, pmax);
+		if ( rb >= pmin && rb < pmax )
+			return n->n_edges[i].e_node;
+		pmin = pmax;
+	}
+
+	abort();
 }
 
 static void abort_client(struct iothread *t, struct http_client *c)
@@ -53,10 +129,6 @@ static void abort_client(struct iothread *t, struct http_client *c)
 	nbio_del(t, &c->c_nbio);
 }
 
-static void advance_vec(struct http_client *c, size_t bytes)
-{
-}
-
 static void client_read(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
@@ -64,13 +136,46 @@ static void client_read(struct iothread *t, struct nbio *io)
 	abort_client(t, c);
 }
 
+static int do_http_req(struct http_client *c, const struct ro_vec *vec)
+{
+	return 1;
+}
+
 static void client_write(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
-	// add to vec if necessary
-	// writev(...)
+	//const uint8_t *rptr;
+	//size_t rsz;
+
+	switch(c->c_tx_state) {
+	case CLIENT_TX_THINK:
+		/* fall through */
+		c->c_markov = markov_step(c->c_markov);
+		if ( NULL == c->c_markov ) {
+			printf("%p markov walk ended\n", c);
+			goto die;
+		}
+		printf("%p request: %.*s\n", c,
+			c->c_markov->n_uri.v_len,
+			c->c_markov->n_uri.v_ptr);
+		c->c_tx_buf = buf_alloc_req();
+		if ( NULL == c->c_tx_buf )
+			goto die;
+	case CLIENT_TX_PAGE_IMPRESS:
+		if ( !do_http_req(c, &c->c_markov->n_uri) )
+			goto die;
+		break;
+	case CLIENT_TX_ANCILLARY:
+		/* try and fill output buffer with more requests */
+		break;
+	}
+
+	/* TODO: push output buffer */
+
+	return;
+die:
 	abort_client(t, c);
-	//nbio_inactive(t, io);
+	return;
 }
 
 static void client_dtor(struct iothread *t, struct nbio *io)
@@ -98,7 +203,6 @@ static void handle_connect(struct iothread *t, int s, void *priv)
 
 	c->c_nbio.fd = s;
 	c->c_nbio.ops = &client_ops;
-	c->c_markov = markov_step(NULL);
 	nbio_add(t, &c->c_nbio, NBIO_WRITE);
 	concurrency++;
 }
@@ -138,7 +242,7 @@ int main(int argc, char **argv)
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
 
-	target_concurrency = 1000;
+	target_concurrency = 1;
 
 	ramp_up(&iothread);
 	do {

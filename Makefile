@@ -36,7 +36,9 @@ HTTPRAPE_BIN = httprape
 HTTPRAPE_SLIBS =
 HTTPRAPE_LIBS = 
 HTTPRAPE_OBJ = httprape.o \
+		markov.o \
 		http_parse.o \
+		http_buf.o \
 		nbio.o \
 		nbio-epoll.o \
 		nbio-poll.o \
