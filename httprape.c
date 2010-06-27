@@ -14,6 +14,10 @@
 #include <http-resp.h>
 #include <hgang.h>
 
+static uint32_t svr_addr;
+static uint16_t svr_port;
+static char *host_addr = "127.0.0.1";
+
 #if 0
 #define dprintf printf
 #else
@@ -37,18 +41,19 @@ struct http_client {
 
 	const struct mnode	*c_markov;
 
+	/* tx/rx */
+	unsigned short	c_inpipe;
+
 	/* -- tx */
-	struct http_buf	*c_tx_buf;
-	unsigned short	c_tx_inbuf;
-	unsigned short	c_tx_inpipe;
+	unsigned short	c_tx_total;
 	unsigned int	c_tx_sub_idx;
+	struct http_buf	*c_tx_buf;
 
 	/* -- rx */
-	struct http_buf	*c_rx_buf;
 	size_t		c_rx_clen;
-	unsigned int	c_rx_sub_idx;
-	unsigned char	c_rx_rstate;
 	const uint8_t	*c_rx_rptr;
+	struct http_buf	*c_rx_buf;
+	unsigned char	c_rx_rstate;
 
 	http_ver_t	c_http_proto_ver;
 };
@@ -180,6 +185,8 @@ static void client_read(struct iothread *t, struct nbio *io)
 		return;
 	}
 
+	/* TODO: Parse header */
+
 	do {
 		const uint8_t *rptr;
 		size_t rsz;
@@ -190,7 +197,8 @@ static void client_read(struct iothread *t, struct nbio *io)
 			c->c_rx_rptr);
 	}while(0);
 
-	abort_client(t, c);
+	c->c_tx_state = CLIENT_TX_THINK;
+	nbio_set_wait(t, &c->c_nbio, NBIO_WRITE);
 }
 
 static int do_http_req(struct http_client *c, const struct ro_vec *uri)
@@ -205,10 +213,12 @@ static int do_http_req(struct http_client *c, const struct ro_vec *uri)
 
 	len = snprintf((char *)wptr, wsz,
 			"GET %.*s HTTP/1.1\r\n"
-			"Host: 127.0.0.1:1234\r\n"
+			"Host: %s:%u\r\n"
 			"Connection: Keep-Alive\r\n"
 			"User-Agent: httprape\r\n"
-			"\r\n", uri->v_len, uri->v_ptr);
+			"\r\n",
+			uri->v_len, uri->v_ptr,
+			host_addr, svr_port);
 	if ( len < 0 )
 		len = 0;
 	if ( (size_t)len >= wsz )
@@ -221,6 +231,7 @@ static int do_http_req(struct http_client *c, const struct ro_vec *uri)
 static void client_write(struct iothread *t, struct nbio *io)
 {
 	struct http_client *c = (struct http_client *)io;
+	struct ro_vec *sub_uri;
 	const uint8_t *rptr;
 	int flags = MSG_NOSIGNAL;
 	size_t rsz;
@@ -237,14 +248,21 @@ static void client_write(struct iothread *t, struct nbio *io)
 		printf("%p request: %.*s\n", c,
 			c->c_markov->n_uri.v_len,
 			c->c_markov->n_uri.v_ptr);
+		c->c_tx_total = 0;
 		c->c_tx_buf = buf_alloc_req();
 		if ( NULL == c->c_tx_buf )
 			goto die;
+		c->c_tx_state = CLIENT_TX_PAGE_IMPRESS;
+		/* fall through */
 	case CLIENT_TX_PAGE_IMPRESS:
 		if ( !do_http_req(c, &c->c_markov->n_uri) )
 			goto die;
 		break;
 	case CLIENT_TX_ANCILLARY:
+		assert(c->c_tx_total <= c->c_markov->n_num_sub + 1);
+		sub_uri = &c->c_markov->n_ancillary[c->c_tx_total - 1];
+		if ( !do_http_req(c, sub_uri) )
+			goto die;
 		/* try and fill output buffer with more requests */
 		break;
 	}
@@ -257,11 +275,23 @@ static void client_write(struct iothread *t, struct nbio *io)
 	}else if ( ret <= 0 )
 		goto die;
 
+	/* FIXME: this is fucked, see switch statement above */
 	rsz = buf_done_read(c->c_tx_buf, ret);
 	if ( rsz == 0 ) {
 		buf_reset(c->c_tx_buf);
-		c->c_rx_state = CLIENT_RX_HEADER;
-		nbio_set_wait(t, &c->c_nbio, NBIO_READ);
+		c->c_tx_total++;
+		c->c_inpipe++;
+
+		if ( c->c_tx_total == 1 && c->c_markov->n_num_sub )
+			c->c_tx_state = CLIENT_TX_PAGE_IMPRESS;
+
+		assert(c->c_tx_total <= c->c_markov->n_num_sub + 1);
+		if ( c->c_tx_total == c->c_markov->n_num_sub + 1 &&
+				c->c_inpipe ) {
+			/* unset write flag until responses are handled */
+			nbio_set_wait(t, &c->c_nbio, NBIO_READ);
+			c->c_tx_state = CLIENT_TX_THINK;
+		}
 	}
 
 	return;
@@ -299,9 +329,6 @@ static void handle_connect(struct iothread *t, int s, void *priv)
 	concurrency++;
 }
 
-static uint32_t svr_addr;
-static uint16_t svr_port;
-
 static void ramp_up(struct iothread *t)
 {
 	unsigned int i;
@@ -323,9 +350,16 @@ int main(int argc, char **argv)
 	struct iothread iothread;
 	struct in_addr in;
 
-	inet_aton("127.0.0.1", &in);
+	svr_port = 80;
+
+	if ( argc > 1 )
+		host_addr = argv[1];
+	if ( argc > 2 )
+		svr_port = atoi(argv[2]);
+
+	printf("Connecting to %s:%u\n", host_addr, svr_port);
+	inet_aton(host_addr, &in);
 	svr_addr = in.s_addr;
-	svr_port = 1234;
 
 	clients = hgang_new(sizeof(struct http_client), 0);
 	if ( NULL == clients )
