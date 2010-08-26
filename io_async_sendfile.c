@@ -8,7 +8,7 @@
 #include <nbio-eventfd.h>
 #include <hgang.h>
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -45,7 +45,7 @@ static int aio_submit(struct iothread *t, http_conn_t h)
 		return 0;
 	}
 
-	dprintf("io_submit: sendfile: %u bytes\n", h_data_len);
+	dprintf("io_submit: sendfile: %u bytes\n", data_len);
 	in_flight++;
 	return 1;
 }

@@ -36,7 +36,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)

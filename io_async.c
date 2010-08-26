@@ -8,7 +8,7 @@
 #include <nbio-eventfd.h>
 #include <hgang.h>
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)

@@ -18,7 +18,7 @@ static uint32_t svr_addr;
 static uint16_t svr_port;
 static char *host_addr = "127.0.0.1";
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -175,7 +175,7 @@ static void client_read(struct iothread *t, struct nbio *io)
 	}
 
 	dprintf("Received %u bytes: %.*s\n",
-		ret, ret, ptr);
+		ret, ret, wptr);
 	buf_done_write(c->c_rx_buf, ret);
 
 	if ( !http_parse_incremental(&c->c_rx_rstate,
@@ -192,8 +192,8 @@ static void client_read(struct iothread *t, struct nbio *io)
 		size_t rsz;
 
 		rptr = buf_read(c->c_rx_buf, &rsz);
-		printf("HTTP: %.*s\n", c->c_rx_rptr - rptr, rptr);
-		printf("DATA: %.*s\n", (rptr + rsz) - c->c_rx_rptr,
+		dprintf("HTTP: %.*s\n", c->c_rx_rptr - rptr, rptr);
+		dprintf("DATA: %.*s\n", (rptr + rsz) - c->c_rx_rptr,
 			c->c_rx_rptr);
 	}while(0);
 
