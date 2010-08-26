@@ -297,7 +297,6 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	const struct webroot_name *n;
 	unsigned int code, mime_type;
 	struct ro_vec search_uri = r->uri;
-	char *conn;
 	uint8_t *ptr;
 	size_t sz;
 	int len;
@@ -327,12 +326,6 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
-	if ( h->h_conn_close ) {
-		conn = "Close";
-	}else{
-		conn = "Keep-Alive";
-	}
-
 	ptr = buf_write(h->h_res, &sz);
 	len = snprintf((char *)ptr, sz,
 			"HTTP/1.1 %u %s\r\n"
@@ -345,7 +338,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			(code == 200) ? "OK": "Not Found",
 			webroot_mime_type(mime_type),
 			h->h_data_len,
-			conn);
+			(h->h_conn_close) ? "Close" : "Keep-Alive");
 	if ( len < 0 )
 		len = 0;
 	if ( (size_t)len == sz ) {
