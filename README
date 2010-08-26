@@ -1,0 +1,37 @@
+ashttpd - async sendfile http daemon
+Copyright (c) 2010 Gianni Tedesco
+
+0. INTRODUCTION
+ashttpd was intended as a test rig for kernel asynchronous sendfile support.
+It is (yet another) simple http daemon for serving up static content. The main
+aims are simplicity and efficiency. It differs from other http daemons in that
+the backing store is not the VFS but a proprietary database. The benefits of
+this approach are performance - when the cache is warm, an open() syscall has
+a noticable performance impact. In the future this will also allow for atomic
+replacements of entire webroots.
+
+1. BUILDING
+For now the webroot index is maintained as a database in which the URI's are
+compiled in to the httpd ELF object as a C data structure and the actual data
+is stored in a file called 'webroot.objdb' which is basically just all of the
+files in the webroot concatenated together.
+
+ $ echo -n /path/to/webroot > ROOT
+ $ (cd `cat ROOT`; find . | cut -c 1-) > MANIFEST
+ $ make
+
+This will build the webroot database and the httpd binary.
+
+Also, the code requires a patched libaio in order to build. Sorry about that!
+You can probably kill the io_async_sendfile.c and hack the Makefile to fix this.
+
+2. RUNNING
+When running httpd the webroot.objdb must be in the working directory.
+The httpd binary takes one (optional) commandline argument which selects the
+I/O model to be used:
+
+  sync - traditional synchronous IO
+  sendfile - recommended
+  dio - O_DIRECT kernel AIO
+  async - kernel AIO, will only be really async if kernel is patched
+  async-sendfile - kernel AIO sendfile, requires non-existant patch
