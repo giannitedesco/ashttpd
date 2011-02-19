@@ -176,7 +176,7 @@ int http_conn_socket(http_conn_t h)
 void http_conn_inactive(struct iothread *t, http_conn_t h)
 {
 	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
-	nbio_inactive(t, &h->h_nbio);
+	nbio_inactive(t, &h->h_nbio, NBIO_WRITE);
 }
 
 void http_conn_wait_on(struct iothread *t, http_conn_t h, unsigned short w)
@@ -225,7 +225,7 @@ static int http_write_hdr(struct iothread *t, struct _http_conn *h)
 
 	ret = send(h->h_nbio.fd, ptr, sz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &h->h_nbio);
+		nbio_inactive(t, &h->h_nbio, NBIO_WRITE);
 		return 1;
 	}else if ( ret <= 0 ) {
 		return 0;
@@ -448,7 +448,7 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 
 	ret = recv(h->h_nbio.fd, ptr, sz, 0);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, nbio);
+		nbio_inactive(t, nbio, NBIO_READ);
 		return;
 	}else if ( ret <= 0 ) {
 		http_kill(t, h);

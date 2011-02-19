@@ -28,7 +28,7 @@ static void efd_read(struct iothread *t, struct nbio *n)
 
 	if ( eventfd_read(efd->e_nbio.fd, &val) ) {
 		if ( errno == EAGAIN ) {
-			nbio_inactive(t, &efd->e_nbio);
+			nbio_inactive(t, &efd->e_nbio, NBIO_READ);
 			return;
 		}
 		fprintf(stderr, "eventfd_read: %s\n", os_err());

@@ -148,10 +148,13 @@ void nbio_del(struct iothread *t, struct nbio *n)
 	list_move_tail(&n->list, &t->deleted);
 }
 
-void nbio_inactive(struct iothread *t, struct nbio *io)
+void nbio_inactive(struct iothread *t, struct nbio *io, nbio_flags_t mask)
 {
-	list_move_tail(&io->list, &t->inactive);
-	t->plugin->inactive(t, io);
+	io->flags &= ~mask;
+	if ( 0 == io->flags ) {
+		list_move_tail(&io->list, &t->inactive);
+		t->plugin->inactive(t, io);
+	}
 }
 
 static void do_set_wait(struct iothread *t, struct nbio *io,

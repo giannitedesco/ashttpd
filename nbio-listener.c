@@ -54,7 +54,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 			(*l->oom)(t, io);
 			break;
 		case EAGAIN:
-			nbio_inactive(t, &l->io);
+			nbio_inactive(t, &l->io, NBIO_READ);
 			break;
 		}
 		return;

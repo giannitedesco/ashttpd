@@ -167,7 +167,7 @@ static void client_read(struct iothread *t, struct nbio *io)
 
 	ret = recv(c->c_nbio.fd, wptr, wsz, 0);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &c->c_nbio);
+		nbio_inactive(t, &c->c_nbio, NBIO_READ);
 		return;
 	}else if ( ret <= 0 ) {
 		abort_client(t, c);
@@ -271,7 +271,7 @@ static void client_write(struct iothread *t, struct nbio *io)
 
 	ret = send(c->c_nbio.fd, rptr, rsz, flags);
 	if ( ret < 0 && errno == EAGAIN ) {
-		nbio_inactive(t, &c->c_nbio);
+		nbio_inactive(t, &c->c_nbio, NBIO_WRITE);
 	}else if ( ret <= 0 )
 		goto die;
 

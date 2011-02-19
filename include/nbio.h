@@ -15,7 +15,8 @@ struct nbio {
 #define NBIO_WRITE	(1<<1)
 #define NBIO_ERROR	(1<<2)
 #define NBIO_WAIT	(NBIO_READ|NBIO_WRITE|NBIO_ERROR)
-	nbio_flags_t mask, flags;
+	nbio_flags_t mask;
+	nbio_flags_t flags;
 	const struct nbio_ops *ops;
 	struct list_head list;
 	union {
@@ -48,7 +49,7 @@ _private void nbio_del(struct iothread *, struct nbio *);
 _private void nbio_pump(struct iothread *, int mto);
 _private void nbio_fini(struct iothread *);
 _private int nbio_init(struct iothread *, const char *plugin);
-_private void nbio_inactive(struct iothread *, struct nbio *);
+_private void nbio_inactive(struct iothread *, struct nbio *, nbio_flags_t);
 _private void nbio_set_wait(struct iothread *, struct nbio *, nbio_flags_t);
 _private nbio_flags_t nbio_get_wait(struct nbio *io);
 _private void nbio_to_waitq(struct iothread *, struct nbio *,
