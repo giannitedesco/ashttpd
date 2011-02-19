@@ -24,7 +24,7 @@
 
 static struct eventloop *ev_list;
 
-#define NBIO_DELETED 0x8000
+#define NBIO_DELETED 0x80
 
 struct eventloop *eventloop_find(const char *name)
 {
@@ -155,7 +155,7 @@ void nbio_inactive(struct iothread *t, struct nbio *io)
 }
 
 static void do_set_wait(struct iothread *t, struct nbio *io,
-			unsigned short wait, struct list_head *q)
+			nbio_flags_t wait, struct list_head *q)
 {
 	assert(io->mask != NBIO_DELETED);
 	wait &= NBIO_WAIT;
@@ -175,7 +175,7 @@ static void do_set_wait(struct iothread *t, struct nbio *io,
 	}
 }
 
-void nbio_set_wait(struct iothread *t, struct nbio *io, unsigned short wait)
+void nbio_set_wait(struct iothread *t, struct nbio *io, nbio_flags_t wait)
 {
 	do_set_wait(t, io, wait, NULL);
 }
@@ -185,13 +185,13 @@ void nbio_to_waitq(struct iothread *t, struct nbio *io, struct list_head *q)
 	do_set_wait(t, io, 0, q);
 }
 
-void nbio_wake(struct iothread *t, struct nbio *io, unsigned short wait)
+void nbio_wake(struct iothread *t, struct nbio *io, nbio_flags_t wait)
 {
 	do_set_wait(t, io, wait, NULL);
 }
 
 /* Move from wait queue to inactive list */
-void nbio_wait_on(struct iothread *t, struct nbio *io, unsigned short wait)
+void nbio_wait_on(struct iothread *t, struct nbio *io, nbio_flags_t wait)
 {
 	assert(io->mask != NBIO_DELETED);
 	wait &= NBIO_WAIT;
@@ -200,12 +200,12 @@ void nbio_wait_on(struct iothread *t, struct nbio *io, unsigned short wait)
 	t->plugin->inactive(t, io);
 }
 
-unsigned short nbio_get_wait(struct nbio *io)
+nbio_flags_t nbio_get_wait(struct nbio *io)
 {
 	return io->mask & NBIO_WAIT;
 }
 
-void nbio_add(struct iothread *t, struct nbio *io, unsigned short wait)
+void nbio_add(struct iothread *t, struct nbio *io, nbio_flags_t wait)
 {
 	INIT_LIST_HEAD(&io->list);
 	do_set_wait(t, io, wait, NULL);

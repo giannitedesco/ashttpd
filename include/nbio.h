@@ -6,6 +6,8 @@
 #ifndef _NBIO_HEADER_INCLUDED_
 #define _NBIO_HEADER_INCLUDED_
 
+typedef uint8_t nbio_flags_t;
+
 /* Represents a given fd */
 struct nbio {
 	int fd;
@@ -13,7 +15,7 @@ struct nbio {
 #define NBIO_WRITE	(1<<1)
 #define NBIO_ERROR	(1<<2)
 #define NBIO_WAIT	(NBIO_READ|NBIO_WRITE|NBIO_ERROR)
-	unsigned short mask, flags;
+	nbio_flags_t mask, flags;
 	const struct nbio_ops *ops;
 	struct list_head list;
 	union {
@@ -41,18 +43,18 @@ struct nbio_ops {
 };
 
 /* nbio API */
-_private void nbio_add(struct iothread *, struct nbio *, unsigned short);
+_private void nbio_add(struct iothread *, struct nbio *, nbio_flags_t);
 _private void nbio_del(struct iothread *, struct nbio *);
 _private void nbio_pump(struct iothread *, int mto);
 _private void nbio_fini(struct iothread *);
 _private int nbio_init(struct iothread *, const char *plugin);
 _private void nbio_inactive(struct iothread *, struct nbio *);
-_private void nbio_set_wait(struct iothread *, struct nbio *, unsigned short);
-_private unsigned short nbio_get_wait(struct nbio *io);
+_private void nbio_set_wait(struct iothread *, struct nbio *, nbio_flags_t);
+_private nbio_flags_t nbio_get_wait(struct nbio *io);
 _private void nbio_to_waitq(struct iothread *, struct nbio *,
 				struct list_head *q);
-_private void nbio_wake(struct iothread *, struct nbio *, unsigned short);
-_private void nbio_wait_on(struct iothread *t, struct nbio *n, unsigned short);
+_private void nbio_wake(struct iothread *, struct nbio *, nbio_flags_t);
+_private void nbio_wait_on(struct iothread *t, struct nbio *n, nbio_flags_t);
 
 /* eventloop plugin API */
 struct eventloop {
