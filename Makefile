@@ -1,13 +1,26 @@
-CC = $(CROSS_COMPILE)gcc
-LD = $(CROSS_COMPILE)ld
-AR = $(CROSS_COMPILE)ar
+.SUFFIXES:
 
-EXTRA_DEFS = -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
-CFLAGS=-g -pipe -Os -Wall -Wsign-compare -Wcast-align -Waggregate-return -Wstrict-prototypes -Wmissing-prototypes -Wmissing-declarations -Wmissing-noreturn -finline-functions -Wmissing-format-attribute -fwrapv -Iinclude $(EXTRA_DEFS)
+CC := $(CROSS_COMPILE)gcc
+LD := $(CROSS_COMPILE)ld
+AR := $(CROSS_COMPILE)ar
 
-HTTPD_BIN = httpd
-HTTPD_SLIBS = ../libaio/src/libaio.a
-HTTPD_LIBS = 
+EXTRA_DEFS := -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
+CFLAGS := -g -pipe -Os -Wall \
+	-Wsign-compare -Wcast-align \
+	-Waggregate-return \
+	-Wstrict-prototypes \
+	-Wmissing-prototypes \
+	-Wmissing-declarations \
+	-Wmissing-noreturn \
+	-finline-functions \
+	-Wmissing-format-attribute \
+	-fwrapv \
+	-Iinclude \
+	$(EXTRA_DEFS) 
+
+HTTPD_BIN := httpd
+HTTPD_SLIBS := ../libaio/src/libaio.a
+HTTPD_LIBS := 
 HTTPD_OBJ = httpd.o \
 		http_parse.o \
 		http_req.o \
@@ -28,14 +41,10 @@ HTTPD_OBJ = httpd.o \
 		vec.o \
 		os.o
 
-#MAKEROOT_OBJ = makeroot.o skunk_make.o hgang.o fobuf.o os.o
-#MAKEROOT_SLIBS =
-#MAKEROOT_LIBS =
-
-HTTPRAPE_BIN = httprape
-HTTPRAPE_SLIBS =
-HTTPRAPE_LIBS = 
-HTTPRAPE_OBJ = httprape.o \
+HTTPRAPE_BIN := httprape
+HTTPRAPE_SLIBS :=
+HTTPRAPE_LIBS := 
+HTTPRAPE_OBJ := httprape.o \
 		markov.o \
 		http_parse.o \
 		http_resp.o \
@@ -48,45 +57,55 @@ HTTPRAPE_OBJ = httprape.o \
 		vec.o \
 		os.o
 
-BINS = $(HTTPD_BIN) $(HTTPRAPE_BIN)
-ALL_OBJS = $(HTTPD_OBJ)
-ALL_TARGETS = $(BINS)
+ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN)
+ALL_OBJ := $(HTTPD_OBJ) $(HTTPRAPE_OBJ)
+ALL_DEP := $(patsubst %.o, .%.d, $(ALL_OBJ))
+ALL_TARGETS := $(ALL_BIN)
 
-TARGET = all
+TARGET: all
 
-.PHONY: all clean dep root walk
+.PHONY: all clean walk
 
-all: dep $(BINS)
+all: $(ALL_BIN)
 
-dep: Make.dep
+ifeq ($(filter clean, $(MAKECMDGOALS)),clean)
+CLEAN_DEP := clean
+else
+CLEAN_DEP :=
+endif
 
-Make.dep: Makefile *.c include/*.h
-	$(CC) $(CFLAGS) -MM include/*.h *.h \
-		$(patsubst %.o, %.c, $(ALL_OBJS)) > $@
+ifeq ($(filter root, $(MAKECMDGOALS)),root)
+ROOT_DEP := root
+else
+ROOT_DEP :=
+endif
 
-%.o: Makefile %.c
-	$(CC) $(CFLAGS) -c -o $@ $(patsubst %.o, %.c, $@)
+%.o %.d: %.c $(CLEAN_DEP) $(ROOT_DEP) $(CONFIG_MAK) Makefile
+	@echo " [C] $(patsubst .%.d, %.c, $@)"
+	@$(CC) $(CFLAGS) -MMD -MF $(patsubst %.o, .%.d, $@) \
+		-MT $(patsubst .%.d, %.o, $@) \
+		-c -o $(patsubst .%.d, %.o, $@) $<
 
 $(HTTPD_BIN): $(HTTPD_OBJ) $(HTTPD_SLIBS)
-	$(CC) $(HTTPD_LIBS) $(CFLAGS) -o $@ $^
+	@echo " [HTTPD]"
+	@$(CC) $(CFLAGS) -o $@ $(HTTPD_OBJ) $(HTTPD_SLIBS) $(HTTPD_LIBS)
 
 $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
-	$(CC) $(HTTPRAPE_LIBS) $(CFLAGS) -o $@ $^
-
-#makeroot: $(MAKEROOT_OBJ) $(MAKEROOT_SLIBS)
-#	$(CC) $(MAKEROOT_LIBS) $(CFLAGS) -o $@ $^
+	@echo " [HTTPRAPE]"
+	@$(CC) $(CFLAGS) -o $@ $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS) $(HTTPRAPE_LIBS)
 
 clean:
-	rm -f $(ALL_TARGETS) $(ALL_OBJS) Make.dep
+	rm -f $(ALL_TARGETS) $(ALL_OBJ) $(ALL_DEP)
 
-webroot.h: makeroot MANIFEST ROOT
+webroot.h: makeroot MANIFEST ROOT $(CLEAN_DEP)
 	./makeroot `cat ROOT` < MANIFEST
+
 root: webroot.h
 
 markov.c: mkmarkov WALK
 	./mkmarkov < WALK
 walk: markov.c
 
-ifeq (Make.dep, $(wildcard Make.dep))
-include Make.dep
+ifneq ($(MAKECMDGOALS),clean)
+-include $(ALL_DEP)
 endif
