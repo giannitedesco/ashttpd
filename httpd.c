@@ -330,7 +330,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	len = snprintf((char *)ptr, sz,
 			"HTTP/1.1 %u %s\r\n"
 			"Content-Type: %s\r\n"
-			"Content-Length: %u\r\n"
+			"Content-Length: %zu\r\n"
 			"Connection: %s\r\n"
 			"Server: ashttpd, experimental l33tness\r\n"
 			"\r\n",

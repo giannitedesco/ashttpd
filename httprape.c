@@ -167,6 +167,7 @@ static void client_read(struct iothread *t, struct nbio *io)
 
 	ret = recv(c->c_nbio.fd, wptr, wsz, 0);
 	if ( ret < 0 && errno == EAGAIN ) {
+		dprintf("again...\n");
 		nbio_inactive(t, &c->c_nbio, NBIO_READ);
 		return;
 	}else if ( ret <= 0 ) {
@@ -174,8 +175,7 @@ static void client_read(struct iothread *t, struct nbio *io)
 		return;
 	}
 
-	dprintf("Received %u bytes: %.*s\n",
-		ret, ret, wptr);
+	dprintf("Received %zu bytes: %.*s\n", ret, (int)ret, wptr);
 	buf_done_write(c->c_rx_buf, ret);
 
 	if ( !http_parse_incremental(&c->c_rx_rstate,
@@ -192,8 +192,8 @@ static void client_read(struct iothread *t, struct nbio *io)
 		size_t rsz;
 
 		rptr = buf_read(c->c_rx_buf, &rsz);
-		dprintf("HTTP: %.*s\n", c->c_rx_rptr - rptr, rptr);
-		dprintf("DATA: %.*s\n", (rptr + rsz) - c->c_rx_rptr,
+		dprintf("HTTP: %.*s\n", (int)(c->c_rx_rptr - rptr), rptr);
+		dprintf("DATA: %.*s\n", (int)((rptr + rsz) - c->c_rx_rptr),
 			c->c_rx_rptr);
 	}while(0);
 
@@ -217,7 +217,7 @@ static int do_http_req(struct http_client *c, const struct ro_vec *uri)
 			"Connection: Keep-Alive\r\n"
 			"User-Agent: httprape\r\n"
 			"\r\n",
-			uri->v_len, uri->v_ptr,
+			(int)uri->v_len, uri->v_ptr,
 			host_addr, svr_port);
 	if ( len < 0 )
 		len = 0;
@@ -246,7 +246,7 @@ static void client_write(struct iothread *t, struct nbio *io)
 			goto die;
 		}
 		printf("%p request: %.*s\n", c,
-			c->c_markov->n_uri.v_len,
+			(int)c->c_markov->n_uri.v_len,
 			c->c_markov->n_uri.v_ptr);
 		c->c_tx_total = 0;
 		c->c_tx_buf = buf_alloc_req();
@@ -283,7 +283,7 @@ static void client_write(struct iothread *t, struct nbio *io)
 		c->c_inpipe++;
 
 		if ( c->c_tx_total == 1 && c->c_markov->n_num_sub )
-			c->c_tx_state = CLIENT_TX_PAGE_IMPRESS;
+			c->c_tx_state = CLIENT_TX_ANCILLARY;
 
 		assert(c->c_tx_total <= c->c_markov->n_num_sub + 1);
 		if ( c->c_tx_total == c->c_markov->n_num_sub + 1 &&

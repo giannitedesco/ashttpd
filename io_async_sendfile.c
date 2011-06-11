@@ -1,5 +1,6 @@
 #include <sys/socket.h>
 #include <errno.h>
+#include <inttypes.h>
 #include "../libaio/src/libaio.h"
 
 #include <ashttpd.h>
@@ -45,7 +46,7 @@ static int aio_submit(struct iothread *t, http_conn_t h)
 		return 0;
 	}
 
-	dprintf("io_submit: sendfile: %u bytes\n", data_len);
+	dprintf("io_submit: sendfile: %zu bytes\n", data_len);
 	in_flight++;
 	return 1;
 }
@@ -90,7 +91,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 
 	memset(&tmo, 0, sizeof(tmo));
 
-	dprintf("aio_event ready, %llu/%u in flight\n", val, in_flight);
+	dprintf("aio_event ready, %"PRIu64"/%u in flight\n", val, in_flight);
 
 	ret = io_getevents(aio_ctx, 1, in_flight, ev, &tmo);
 	if ( ret < 0 ) {

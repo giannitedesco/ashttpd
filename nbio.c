@@ -131,8 +131,11 @@ void nbio_pump(struct iothread *t, int mto)
 		d->ops->dtor(t, d);
 	}
 
+#if 0
+	/* redundant ? */
 	list_for_each_entry_safe(n, tmp, &t->inactive, list)
 		t->plugin->inactive(t, n);
+#endif
 
 	if ( !list_empty(&t->inactive) )
 		t->plugin->pump(t, mto);
@@ -151,7 +154,7 @@ void nbio_del(struct iothread *t, struct nbio *n)
 void nbio_inactive(struct iothread *t, struct nbio *io, nbio_flags_t mask)
 {
 	io->flags &= ~mask;
-	if ( 0 == io->flags ) {
+	if ( (io->mask & io->flags) == 0 ) {
 		list_move_tail(&io->list, &t->inactive);
 		t->plugin->inactive(t, io);
 	}

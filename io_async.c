@@ -1,6 +1,7 @@
 #include <sys/socket.h>
 #include "../libaio/src/libaio.h"
 #include <errno.h>
+#include <inttypes.h>
 #include <ashttpd.h>
 #include <ashttpd-conn.h>
 #include <ashttpd-buf.h>
@@ -52,7 +53,7 @@ static int aio_submit(struct iothread *t, http_conn_t h)
 		return 0;
 	}
 
-	dprintf("io_submit: pread: %u bytes\n", sz);
+	dprintf("io_submit: pread: %zu bytes\n", sz);
 	http_conn_to_waitq(t, h, NULL);
 	in_flight++;
 	return 1;
@@ -90,7 +91,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 
 	memset(&tmo, 0, sizeof(tmo));
 
-	dprintf("aio_event ready, %llu/%u in flight\n", val, in_flight);
+	dprintf("aio_event ready, %"PRIu64"/%u in flight\n", val, in_flight);
 
 	ret = io_getevents(aio_ctx, 1, in_flight, ev, &tmo);
 	if ( ret < 0 ) {
@@ -151,16 +152,16 @@ static int io_async_write(struct iothread *t, http_conn_t h)
 		return 0;
 	}
 
-	dprintf("Transmitted %u\n", (size_t)ret);
+	dprintf("Transmitted %zu\n", (size_t)ret);
 	sz = buf_done_read(data_buf, ret);
 	data_len = http_conn_data_read(h, ret);
 	if ( sz ) {
-		dprintf("Partial transmit: %u bytes left\n", sz);
+		dprintf("Partial transmit: %zu bytes left\n", sz);
 		return 1;
 	}
 
 	if ( data_len ) {
-		dprintf("Submit more, %u bytes left\n", data_len);
+		dprintf("Submit more, %zu bytes left\n", data_len);
 		buf_reset(data_buf);
 		return aio_submit(t, h);
 	}

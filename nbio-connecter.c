@@ -43,7 +43,7 @@ static void connect_write(struct iothread *t, struct nbio *io)
 	}
 
 	if ( len != sizeof(err) ) {
-		fprintf(stderr, "connecter: getsockopt: %u != %u\n",
+		fprintf(stderr, "connecter: getsockopt: %u != %zu\n",
 			len, sizeof(err));
 		goto barf;
 	}
@@ -120,5 +120,6 @@ int connecter(struct iothread *t, int type, int proto,
 	c->cb = cb;
 	c->priv = priv;
 	nbio_add(t, &c->io, NBIO_WRITE);
+	nbio_inactive(t, &c->io, NBIO_WRITE);
 	return 1;
 }

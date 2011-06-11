@@ -4,6 +4,7 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <errno.h>
+#include <inttypes.h>
 #include "../libaio/src/libaio.h"
 #define __USE_GNU /* O_DIRECT */
 #include <fcntl.h>
@@ -125,7 +126,8 @@ static int init_cache(int fd)
 		lock_pages = cache_nr_chunks << PAGE_SHIFT;
 	else
 		lock_pages = (size_t)lock_limit >> PAGE_SHIFT;
-	printf("dio: webroot: %llx bytes, %u pages required, %u lockable\n",
+	printf("dio: webroot: %"PRIx64" bytes, "
+		"%u pages required, %zu lockable\n",
 		st.st_size, cache_nr_chunks, lock_pages);
 
 	if ( lock_pages < cache_nr_chunks ) {
@@ -140,7 +142,7 @@ static int init_cache(int fd)
 		fprintf(stderr, "dio: mmap: %s\n", os_err());
 		return 0;
 	}
-	printf("Allocated %u bytes in %u pages\n",
+	printf("Allocated %zu bytes in %zu pages\n",
 		sz, (sz + PAGE_MASK) >> PAGE_SHIFT);
 
 	cache_nr_chunks = (sz + CHUNK_MASK) >> CHUNK_SHIFT;
@@ -151,6 +153,7 @@ static int init_cache(int fd)
 		fprintf(stderr, "dio: mlock: %s\n", os_err());
 		return 0;
 	}
+	
 	printf("dio: it's all locked in baby\n");
 
 	cache_chunks = calloc(cache_nr_chunks, sizeof(*cache_chunks));
@@ -161,7 +164,7 @@ static int init_cache(int fd)
 
 	for(i = 0; i < cache_nr_chunks; i++)
 		list_add_tail(&cache_chunks[i].c_u.cu_free, &freelist);
-	printf("dio: %u x %u byte cache chunk descriptors on free list\n",
+	printf("dio: %u x %zu byte cache chunk descriptors on free list\n",
 		cache_nr_chunks, sizeof(struct cache));
 	return 1;
 }
@@ -265,7 +268,8 @@ static struct http_buf *cache2buf(struct cache *c, http_conn_t h)
 	assert(data_off >= c_base);
 	ofs = data_off - c_base;
 	assert(ofs < CHUNK_SIZE);
-	sz = ((ofs + data_len) < CHUNK_SIZE) ? data_len : (CHUNK_SIZE - ofs);
+	sz = ((ofs + data_len) < CHUNK_SIZE) ? 
+		(size_t)data_len : (CHUNK_SIZE - ofs);
 	assert(ofs + sz <= CHUNK_SIZE);
 
 	buf->b_read = buf->b_base = baseptr + ofs;
