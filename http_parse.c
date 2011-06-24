@@ -85,7 +85,7 @@ static inline void dispatch_hdr(struct http_hcb *dcb,
 		int ret;
 
 		i = (n / 2);
-		ret = vstrcmp(k, d[i].label);
+		ret = vstrcmp_fast(k, d[i].label);
 		if ( ret < 0 ) {
 			n = i;
 		}else if ( ret > 0 ) {
