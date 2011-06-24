@@ -42,7 +42,7 @@ class foostr(str):
 			return len(a) - len(b)
 		return str.__cmp__(a, b)
 
-class FileObject:
+class WebObject:
 	def __lt__(a, b):
 		return a.size < b.size
 	def __le__(a, b):
@@ -57,16 +57,22 @@ class FileObject:
 		return a.size == b.size
 	def __cmp__(a, b):
 		return a.size - b.size
+	def __str__(self):
+		return self.path
+	def __init__(self):
+		self.mime_type = None
+	def calc_mime_type(self):
+		return
 
+class FileObject(WebObject):
 	def __init__(self, path):
+		WebObject.__init__(self)
 		st = os.stat(path)
 		key = (st.st_dev, st.st_ino)
 		self.key = key
 		self.path = path
 		self.size = st.st_size
-		self.mime_type = None
-	def __str__(self):
-		return self.path
+
 	def to_file(self, f):
 		self.fpos = f.tell()
 
@@ -82,24 +88,48 @@ class FileObject:
 			buf = infile.read(8192)
 
 		self.flen = f.tell() - self.fpos
-	def set_mime_type(self, mime):
-		self.mime_type = str(mime)
+
+	def calc_mime_type(self):
+		m = globalmagic
+		self.mime_type = str(m.file(self.path))
+
+class DirObject(WebObject):
+	def make_index(self):
+		print 'Indexing %s'%self.path
+		ret = '<html>'
+		ret += '<head><title>Index of %s</title></head>'%self.key
+		ret += '<body bgcolor="white"><h1>Dir index of %s</h1>'%self.key
+		ret += '<hr><pre>'
+		for x in os.listdir(self.path):
+			ret += '<a href="%s">%s</a>\n'%(x, x)
+		ret += '</pre><hr>'
+		ret += '</body></html>'
+		return ret
+
+	def __init__(self, path, uri):
+		WebObject.__init__(self)
+		self.key = uri
+		self.path = path
+		self.__data = self.make_index()
+		self.size = len(self.__data)
+		self.mime_type = 'text/html; charset=us-ascii'
+
+	def to_file(self, f):
+		self.fpos = f.tell()
+		f.write(self.__data)
+		self.flen = f.tell() - self.fpos
 
 class ObjectStore:
 	PATH_404 = "./404.html"
 
 	def __init__(self):
 		self.__obj_db = {}
-		self.__404 = self.add()
+		self.__404 = self.add_file()
 
 	def get_404(self):
 		return self.__404
 
-	def add(self, path = None):
-		if not path:
-			path = self.PATH_404
-
-		candidate = FileObject(path)
+	def __do_add(self, candidate):
 		key = candidate.key
 
 		if self.__obj_db.has_key(key):
@@ -108,10 +138,18 @@ class ObjectStore:
 		else:
 			self.__obj_db[key] = candidate
 			ret = candidate
-			m = globalmagic
-			ret.set_mime_type(m.file(ret.path))
+			ret.calc_mime_type()
 
 		return ret
+
+	def add_file(self, path = None):
+		if not path:
+			path = self.PATH_404
+
+		return self.__do_add(FileObject(path))
+
+	def add_dir(self, path, uri):
+		return self.__do_add(DirObject(path, uri))
 
 	def __dio_align(self, f):
 		fd = f.fileno()
@@ -132,11 +170,21 @@ class ObjectStore:
 		return
 
 class NameDB:
+	TYPE_FILE = 0
+	TYPE_DIR = 1
+
 	def __init__(self):
 		self.__names = {}
 		self.__objects = ObjectStore()
-	def __setitem__(self, key, val):
-		self.__names[foostr(key)] = self.__objects.add(val)
+	def __setitem__(self, key, (ty, val)):
+		if ty == self.TYPE_FILE:
+			self.__names[foostr(key)] = \
+				self.__objects.add_file(val)
+		elif ty == self.TYPE_DIR:
+			self.__names[foostr(key)] = \
+				self.__objects.add_dir(val, key)
+		else:
+			raise Exception
 	def __iter__(self):
 		n = self.__names.keys()
 		n.sort()
@@ -227,17 +275,17 @@ def webmap(webroot, path):
 		st = os.stat(ret)
 	except OSError:
 		print "%s - 404"%ret
-		return None
+		return (NameDB.TYPE_FILE, None)
 
 	if stat.S_ISDIR(st.st_mode):
 		idx = os.path.join(ret, "index.html")
 		try:
 			st = os.stat(idx)
-			return idx
+			return (NameDB.TYPE_FILE, idx)
 		except OSError:
-			return None
+			return (NameDB.TYPE_DIR, ret)
 
-	return ret
+	return (NameDB.TYPE_FILE, ret)
 
 if __name__ == '__main__':
 	ws = False
