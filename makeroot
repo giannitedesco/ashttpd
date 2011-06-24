@@ -120,7 +120,11 @@ class DirObject(WebObject):
 
 		# directory list
 		ret += '<pre>'
-		for x in os.listdir(self.path):
+		l = os.listdir(self.path)
+		l.sort()
+		for x in l:
+			if x in ['.htaccess', '.htpasswd']:
+				continue
 			p = os.path.join(self.path, x)
 			try:
 				st = os.stat(p)
@@ -128,7 +132,14 @@ class DirObject(WebObject):
 				continue
 			if stat.S_ISDIR(st.st_mode):
 				x += '/'
-			ret += '<a href="%s">%s</a>\n'%(x, x)
+
+			if stat.S_ISREG(st.st_mode):
+				sz = '%d bytes'%st.st_size
+			else:
+				sz = '-'
+			ln = '<a href="%s">%s</a>'%(x, x)
+			ln += ('%%%ds'%(50 - len(x)))%sz
+			ret += ln + '\n'
 
 		ret += '</pre><hr>ashttpd, experimental l33tness'
 		ret += '</body></html>'
@@ -235,8 +246,7 @@ class NameDB:
 			try:
 				self.__names[foostr(key)] = \
 					self.__objects.add_file(val + '/index.html')
-			except OSError, e:
-				print str(e)
+			except OSError:
 				self.__names[foostr(key)] = \
 					self.__objects.add_dir(val, key)
 		else:
