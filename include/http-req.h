@@ -13,10 +13,11 @@ struct http_request {
 	struct ro_vec	content_type;
 	struct ro_vec	content_enc;
 #endif
+	struct ro_vec	hostname;
 	size_t		content_len;
+	uint16_t 	port;
 	http_ver_t 	proto_vers;
 	uint8_t 	conn_close;
-	uint16_t 	port;
 };
 _private size_t http_req(struct http_request *r,
 			const uint8_t *ptr, size_t len);

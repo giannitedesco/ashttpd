@@ -303,19 +303,24 @@ static int response_400(struct iothread *t, struct _http_conn *h)
 
 /* FIXME: persistent connection handling */
 static int response_301(struct iothread *t, struct _http_conn *h,
+			const struct ro_vec *host_hdr,
 			const struct ro_vec *loc)
 {
-	static const char *host = "127.0.0.1:1234";
+	struct ro_vec host;
 	uint8_t *ptr;
 	size_t sz;
 	int n;
+
+	/* FIXME: if host header not present, then figure it out */
+	host.v_ptr = host_hdr->v_ptr;
+	host.v_len = host_hdr->v_len;
 
 	ptr = buf_write(h->h_res, &sz);
 	assert(NULL != ptr && sz >= strlen(resp301));
 
 	memcpy(ptr, resp400, strlen(resp301));
 	n = snprintf((char *)ptr, sz, resp301,
-			strlen(host), host,
+			(int)host.v_len, host.v_ptr,
 			(int)loc->v_len, loc->v_ptr);
 	buf_done_write(h->h_res, n);
 	h->h_data_len = 0;
@@ -357,7 +362,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	}else{
 		switch(n->mime_type) {
 		case MIME_TYPE_MOVED_PERMANENTLY:
-			return response_301(t, h, &n->u.moved);
+			return response_301(t, h, &r->host, &n->u.moved);
 		default:
 			h->h_data_off = n->u.data.f_ofs;
 			h->h_data_len = n->u.data.f_len;

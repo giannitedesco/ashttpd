@@ -64,11 +64,13 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 		struct ro_vec port = { .v_ptr = NULL };
 		unsigned int prt;
 
-		for(i = r->host.v_len; i; i--) {
-			if (  ((uint8_t *)r->host.v_ptr)[i - 1] == ':' ) {
-				port.v_len = r->host.v_len - i;
-				port.v_ptr = r->host.v_ptr + i;
-				r->host.v_len = i - 1;
+		memcpy(&r->hostname, &r->host, sizeof(r->hostname));
+
+		for(i = r->hostname.v_len; i; i--) {
+			if (  ((uint8_t *)r->hostname.v_ptr)[i - 1] == ':' ) {
+				port.v_len = r->hostname.v_len - i;
+				port.v_ptr = r->hostname.v_ptr + i;
+				r->hostname.v_len = i - 1;
 				break;
 			}
 		}
