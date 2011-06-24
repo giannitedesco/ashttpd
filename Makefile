@@ -35,6 +35,7 @@ HTTPD_OBJ = httpd.o \
 		http_parse.o \
 		http_req.o \
 		http_buf.o \
+		normalize.o \
 		webroot.o \
 		io_sync.o \
 		io_sendfile.o \

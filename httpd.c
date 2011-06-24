@@ -12,6 +12,7 @@
 #include <ashttpd-fio.h>
 #include <http-parse.h>
 #include <http-req.h>
+#include <normalize.h>
 #include <hgang.h>
 
 #define HTTP_CONN_REQUEST	0
@@ -36,7 +37,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -297,6 +298,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	const struct webroot_name *n;
 	unsigned int code, mime_type;
 	struct ro_vec search_uri = r->uri;
+	struct nads nads;
 	uint8_t *ptr;
 	size_t sz;
 	int len;
@@ -305,7 +307,17 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
 		search_uri.v_len--;
 
-	//printf("get %.*s\n", (int)r->uri.v_len, r->uri.v_ptr);
+	nads.buf = (char *)r->uri.v_ptr;
+	nads.buf_len = r->uri.v_len;
+	nads_normalize(&nads);
+
+	dprintf("GET %.*s -> '%s' '%s'\n",
+		(int)r->uri.v_len, r->uri.v_ptr,
+		nads.uri, nads.query);
+
+	search_uri.v_ptr = (uint8_t *)nads.uri;
+	search_uri.v_len = strlen(nads.uri);
+
 	n = webroot_find(&search_uri);
 	if ( NULL == n ) {
 		h->h_data_off = obj404_f_ofs;
