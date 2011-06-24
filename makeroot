@@ -63,6 +63,11 @@ class WebObject:
 		self.mime_type = None
 	def calc_mime_type(self):
 		return
+	def get_mime_type(self, mimelist):
+		return "%d"%mimelist.index(self.mime_type)
+	def value(self):
+		return '.data = {.f_ofs = %u, .f_len = %u}}'%\
+			(self.fpos, self.flen)
 
 class FileObject(WebObject):
 	def __init__(self, path):
@@ -99,10 +104,33 @@ class DirObject(WebObject):
 		ret = '<html>'
 		ret += '<head><title>Index of %s</title></head>'%self.key
 		ret += '<body bgcolor="white"><h1>Dir index of %s</h1>'%self.key
-		ret += '<hr><pre>'
+		ret += '<hr>'
+
+		# summary
+		p = os.path.join(self.path, 'README.txt')
+		try:
+			f = open(p)
+			s = '<pre>'
+			s += f.read()
+			s += '</pre><hr>'
+			del f
+		except Exception, e:
+			s = ''
+		ret += s
+
+		# directory list
+		ret += '<pre>'
 		for x in os.listdir(self.path):
+			p = os.path.join(self.path, x)
+			try:
+				st = os.stat(p)
+			except OSError:
+				continue
+			if stat.S_ISDIR(st.st_mode):
+				x += '/'
 			ret += '<a href="%s">%s</a>\n'%(x, x)
-		ret += '</pre><hr>'
+
+		ret += '</pre><hr>ashttpd, experimental l33tness'
 		ret += '</body></html>'
 		return ret
 
@@ -118,6 +146,23 @@ class DirObject(WebObject):
 		self.fpos = f.tell()
 		f.write(self.__data)
 		self.flen = f.tell() - self.fpos
+
+class MovedObject(WebObject):
+	def __init__(self, before, after):
+		WebObject.__init__(self)
+		self.key = before
+		self.size = 0
+		self.moved_to = after
+		#print 'Redirect %s -> %s'%(before, after)
+
+	def to_file(self, f):
+		self.fpos = 0
+		self.flen = 0
+	def get_mime_type(self, mimelist):
+		return "MIME_TYPE_MOVED_PERMANENTLY"
+	def value(self):
+		return '.moved = {.v_ptr = (uint8_t *)"%s", .v_len = %u}}'%\
+			(str(self.moved_to), len(self.moved_to))
 
 class ObjectStore:
 	PATH_404 = "./404.html"
@@ -149,8 +194,10 @@ class ObjectStore:
 		return self.__do_add(FileObject(path))
 
 	def add_dir(self, path, uri):
+		assert(uri[-1:] == '/')
 		return self.__do_add(DirObject(path, uri))
-
+	def add_redirect(self, before, after):
+		return self.__do_add(MovedObject(before, after))
 	def __dio_align(self, f):
 		fd = f.fileno()
 		st = os.fstat(fd)
@@ -181,8 +228,17 @@ class NameDB:
 			self.__names[foostr(key)] = \
 				self.__objects.add_file(val)
 		elif ty == self.TYPE_DIR:
-			self.__names[foostr(key)] = \
-				self.__objects.add_dir(val, key)
+			if key[-1:] != '/':
+				key += '/'
+			self.__names[foostr(key[:-1])] = \
+				self.__objects.add_redirect(key[:-1], key)
+			try:
+				self.__names[foostr(key)] = \
+					self.__objects.add_file(val + '/index.html')
+			except OSError, e:
+				print str(e)
+				self.__names[foostr(key)] = \
+					self.__objects.add_dir(val, key)
 		else:
 			raise Exception
 	def __iter__(self):
@@ -247,10 +303,9 @@ class NameDB:
 			f.write("\t{ ")
 			f.write(".name = { .v_ptr = (uint8_t *)\"%s\",\n"%n)
 			f.write("\t\t.v_len = %u},\n"%len(n))
-			f.write("\t\t.mime_type = %u,\n"%mimelist.index(
-							o.mime_type))
-			f.write("\t\t.f_ofs = %u, .f_len = %u"%(o.fpos, o.flen))
-			f.write(" },\n")
+			f.write("\t\t.mime_type = %s,\n"%\
+				o.get_mime_type(mimelist))
+			f.write("\t\t.u = {%s},\n"%o.value())
 		f.write("};\n\n")
 
 		f.write("const off_t obj404_f_ofs = %u;\n"%o404.fpos)
@@ -278,12 +333,7 @@ def webmap(webroot, path):
 		return (NameDB.TYPE_FILE, None)
 
 	if stat.S_ISDIR(st.st_mode):
-		idx = os.path.join(ret, "index.html")
-		try:
-			st = os.stat(idx)
-			return (NameDB.TYPE_FILE, idx)
-		except OSError:
-			return (NameDB.TYPE_DIR, ret)
+		return (NameDB.TYPE_DIR, ret)
 
 	return (NameDB.TYPE_FILE, ret)
 

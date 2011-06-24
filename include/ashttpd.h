@@ -13,11 +13,17 @@
 #include <vec.h>
 #include <os.h>
 
+#define MIME_TYPE_MOVED_PERMANENTLY	-401
 struct webroot_name {
 	struct ro_vec name;
-	unsigned int mime_type;
-	off_t f_ofs;
-	size_t f_len;
+	int mime_type;
+	union {
+		struct {
+			off_t f_ofs;
+			size_t f_len;
+		}data;
+		struct ro_vec moved;
+	}u;
 };
 
 _private int generic_webroot_fd(const char *fn);

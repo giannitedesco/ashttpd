@@ -55,6 +55,15 @@ static const char * const resp400 =
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>Bad Request</body></html>";
+static const char * const resp301 =
+	"HTTP/1.1 301 Moved Permanently\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 82\r\n"
+	"Location: http://%.*s%.*s\r\n"
+	"\r\n"
+	"<html><head><title>Object Moved</title></head>"
+	"<body><h1>Object Moved</body></html>";
+
 
 #define _io_init	(*fio_current->init)
 #define _io_prep	(*fio_current->prep)
@@ -292,6 +301,27 @@ static int response_400(struct iothread *t, struct _http_conn *h)
 	return 1;
 }
 
+/* FIXME: persistent connection handling */
+static int response_301(struct iothread *t, struct _http_conn *h,
+			const struct ro_vec *loc)
+{
+	static const char *host = "127.0.0.1:1234";
+	uint8_t *ptr;
+	size_t sz;
+	int n;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp301));
+
+	memcpy(ptr, resp400, strlen(resp301));
+	n = snprintf((char *)ptr, sz, resp301,
+			strlen(host), host,
+			(int)loc->v_len, loc->v_ptr);
+	buf_done_write(h->h_res, n);
+	h->h_data_len = 0;
+	return 1;
+}
+
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
 {
@@ -325,10 +355,15 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		mime_type = obj404_mime_type;
 		code = 404;
 	}else{
-		h->h_data_off = n->f_ofs;
-		h->h_data_len = n->f_len;
-		mime_type = n->mime_type;
-		code = 200;
+		switch(n->mime_type) {
+		case MIME_TYPE_MOVED_PERMANENTLY:
+			return response_301(t, h, &n->u.moved);
+		default:
+			h->h_data_off = n->u.data.f_ofs;
+			h->h_data_len = n->u.data.f_len;
+			mime_type = n->mime_type;
+			code = 200;
+		}
 	}
 
 	if ( h->h_data_len && !head ) {
