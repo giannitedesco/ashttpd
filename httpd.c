@@ -36,7 +36,7 @@ struct _http_conn {
 	unsigned int	h_conn_close;
 };
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -239,7 +239,7 @@ static int http_write_hdr(struct iothread *t, struct _http_conn *h)
 		h->h_res = NULL;
 
 		if ( h->h_data_len ) {
-			dprintf("Header done, %u bytes of data\n",
+			dprintf("Header done, %zu bytes of data\n",
 				h->h_data_len);
 			h->h_state = HTTP_CONN_DATA;
 		}else{
@@ -305,7 +305,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
 		search_uri.v_len--;
 
-	//printf("get %.*s\n", r->uri.v_len, r->uri.v_ptr);
+	//printf("get %.*s\n", (int)r->uri.v_len, r->uri.v_ptr);
 	n = webroot_find(&search_uri);
 	if ( NULL == n ) {
 		h->h_data_off = obj404_f_ofs;
@@ -402,7 +402,7 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		return;
 	}
 
-	dprintf("%u/%u bytes were request\n", hlen, sz);
+	dprintf("%zu/%zu bytes were request\n", hlen, sz);
 	buf_done_read(h->h_req, hlen);
 
 	buf_read(h->h_req, &sz);
@@ -455,8 +455,8 @@ static void http_read(struct iothread *t, struct nbio *nbio)
 		return;
 	}
 
-	dprintf("Received %u bytes: %.*s\n",
-		ret, ret, ptr);
+	dprintf("Received %zu bytes: %.*s\n",
+		ret, (int)ret, ptr);
 	buf_done_write(h->h_req, ret);
 
 	if ( !http_parse_incremental(&h->h_rstate,
