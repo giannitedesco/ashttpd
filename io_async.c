@@ -1,5 +1,5 @@
 #include <sys/socket.h>
-#include "../libaio/src/libaio.h"
+#include <libaio.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <ashttpd.h>

@@ -5,7 +5,7 @@
 #include <sys/socket.h>
 #include <errno.h>
 #include <inttypes.h>
-#include "../libaio/src/libaio.h"
+#include <libaio.h>
 #define __USE_GNU /* O_DIRECT */
 #include <fcntl.h>
 #undef __USE_GNU

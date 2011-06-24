@@ -1,11 +1,22 @@
 .SUFFIXES:
+CONFIG_MAK := Config.mak
+-include Config.mak
+
+ifdef USE_CUSTOM_LIBAIO
+LIBAIO := ../libaio/libaio.a
+AIO_SENDFILE_OBJ := io_async_sendfile.o
+EXTRA_DEFS := -I../libaio/src -DHAVE_AIO_SENDFILE
+else
+LIBAIO := -laio
+AIO_SENDFILE_OBJ := 
+endif
 
 CC := $(CROSS_COMPILE)gcc
 LD := $(CROSS_COMPILE)ld
 AR := $(CROSS_COMPILE)ar
 
 EXTRA_DEFS := -D_FILE_OFFSET_BITS=64 -DHAVE_ACCEPT4=1
-CFLAGS := -g -pipe -Os -Wall \
+CFLAGS := -g -pipe -O2 -Wall \
 	-Wsign-compare -Wcast-align \
 	-Waggregate-return \
 	-Wstrict-prototypes \
@@ -19,8 +30,7 @@ CFLAGS := -g -pipe -Os -Wall \
 	$(EXTRA_DEFS) 
 
 HTTPD_BIN := httpd
-HTTPD_SLIBS := ../libaio/src/libaio.a
-HTTPD_LIBS := 
+HTTPD_LIBS := $(LIBAIO)
 HTTPD_OBJ = httpd.o \
 		http_parse.o \
 		http_req.o \
@@ -30,7 +40,7 @@ HTTPD_OBJ = httpd.o \
 		io_sendfile.o \
 		io_async.o \
 		io_dasync.o \
-		io_async_sendfile.o \
+		$(AIO_SENDFILE_OBJ) \
 		nbio.o \
 		nbio-epoll.o \
 		nbio-poll.o \
@@ -42,7 +52,6 @@ HTTPD_OBJ = httpd.o \
 		os.o
 
 HTTPRAPE_BIN := httprape
-HTTPRAPE_SLIBS :=
 HTTPRAPE_LIBS := 
 HTTPRAPE_OBJ := httprape.o \
 		markov.o \
@@ -86,13 +95,13 @@ endif
 		-MT $(patsubst .%.d, %.o, $@) \
 		-c -o $(patsubst .%.d, %.o, $@) $<
 
-$(HTTPD_BIN): $(HTTPD_OBJ) $(HTTPD_SLIBS)
+$(HTTPD_BIN): $(HTTPD_OBJ)
 	@echo " [HTTPD]"
-	@$(CC) $(CFLAGS) -o $@ $(HTTPD_OBJ) $(HTTPD_SLIBS) $(HTTPD_LIBS)
+	@$(CC) $(CFLAGS) -o $@ $(HTTPD_OBJ) $(HTTPD_LIBS)
 
 $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
 	@echo " [HTTPRAPE]"
-	@$(CC) $(CFLAGS) -o $@ $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS) $(HTTPRAPE_LIBS)
+	@$(CC) $(CFLAGS) -o $@ $(HTTPRAPE_OBJ) $(HTTPRAPE_LIBS)
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJ) $(ALL_DEP)

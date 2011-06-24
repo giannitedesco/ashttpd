@@ -531,8 +531,10 @@ static struct http_fio *io_model(const char *name)
 		/* Kernel based AIO / sendfile utilizing kernel pipe
 		 * buffers and splicing... experimental
 		 */
+#if HAVE_AIO_SENDFILE
 		{"aio-sendfile", &fio_async_sendfile},
 		{"async-sendfile", &fio_async_sendfile},
+#endif
 	};
 
 	if ( NULL == name )
