@@ -91,17 +91,17 @@ ROOT_DEP :=
 endif
 
 %.o %.d: %.c $(CLEAN_DEP) $(ROOT_DEP) $(CONFIG_MAK) Makefile
-	@echo " [C] $(patsubst .%.d, %.c, $@)"
+	@echo " [C] $<"
 	@$(CC) $(CFLAGS) -MMD -MF $(patsubst %.o, .%.d, $@) \
 		-MT $(patsubst .%.d, %.o, $@) \
 		-c -o $(patsubst .%.d, %.o, $@) $<
 
 $(HTTPD_BIN): $(HTTPD_OBJ)
-	@echo " [HTTPD]"
+	@echo " [LINK] $@"
 	@$(CC) $(CFLAGS) -o $@ $(HTTPD_OBJ) $(HTTPD_LIBS)
 
 $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
-	@echo " [HTTPRAPE]"
+	@echo " [LINK] $@"
 	@$(CC) $(CFLAGS) -o $@ $(HTTPRAPE_OBJ) $(HTTPRAPE_LIBS)
 
 clean:
