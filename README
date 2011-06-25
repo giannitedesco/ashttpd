@@ -17,13 +17,10 @@ is stored in a file called 'webroot.objdb' which is basically just all of the
 files in the webroot concatenated together.
 
  $ echo -n /path/to/webroot > ROOT
- $ (cd `cat ROOT`; find . | cut -c 1-) > MANIFEST
+ $ (cd `cat ROOT`; find . | cut -c 2- | sed "s/^$/\//) > MANIFEST
  $ make
 
 This will build the webroot database and the httpd binary.
-
-Also, the code requires a patched libaio in order to build. Sorry about that!
-You can probably kill the io_async_sendfile.c and hack the Makefile to fix this.
 
 2. RUNNING
 When running httpd the webroot.objdb must be in the working directory.
@@ -34,4 +31,4 @@ I/O model to be used:
   sendfile - recommended
   dio - O_DIRECT kernel AIO
   async - kernel AIO, will only be really async if kernel is patched
-  async-sendfile - kernel AIO sendfile, requires non-existant patch
+  async-sendfile - kernel AIO sendfile, requires patch to kernel and libaio
