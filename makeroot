@@ -241,8 +241,9 @@ class NameDB:
 		elif ty == self.TYPE_DIR:
 			if key[-1:] != '/':
 				key += '/'
-			self.__names[foostr(key[:-1])] = \
-				self.__objects.add_redirect(key[:-1], key)
+			if key != '/':
+				self.__names[foostr(key[:-1])] = \
+					self.__objects.add_redirect(key[:-1], key)
 			try:
 				self.__names[foostr(key)] = \
 					self.__objects.add_file(val + '/index.html')
@@ -330,8 +331,9 @@ class NameDB:
 			o = self.__names[n]
 			if o == o404:
 				continue
-			f.write("'%s', NULL, '%s', 0, %u, %u\n"%\
-				(n, o.mime_type, o.fpos, o.flen))
+			#f.write("'%s', NULL, '%s', 0, %u, %u\n"%\
+			#	(n, o.mime_type, o.fpos, o.flen))
+			f.write("'%s'\n"%n)
 
 def webmap(webroot, path):
 	ret = os.path.join(webroot, path)
