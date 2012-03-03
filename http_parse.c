@@ -27,6 +27,10 @@ http_ver_t http_proto_version(struct ro_vec *str)
 
 	maj = s[5] - '0';
 	min = s[7] - '0';
+	if ( maj < 0 || maj > 9 )
+		return HTTP_VER_UNKNOWN;
+	if ( min < 0 || min > 9 )
+		return HTTP_VER_UNKNOWN;
 
 	return (min << 4) | maj;
 }
