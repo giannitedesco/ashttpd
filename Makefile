@@ -67,8 +67,14 @@ HTTPRAPE_OBJ := httprape.o \
 		vec.o \
 		os.o
 
-ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN)
-ALL_OBJ := $(HTTPD_OBJ) $(HTTPRAPE_OBJ)
+MKROOT_BIN := mkroot
+MKROOT_LIBS := 
+MKROOT_OBJ := hgang.o \
+		strpool.o \
+		mkroot.o
+
+ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN) $(MKROOT_BIN)
+ALL_OBJ := $(HTTPD_OBJ) $(HTTPRAPE_OBJ) $(MKROOT_OBJ)
 ALL_DEP := $(patsubst %.o, .%.d, $(ALL_OBJ))
 ALL_TARGETS := $(ALL_BIN)
 
@@ -103,6 +109,10 @@ $(HTTPD_BIN): $(HTTPD_OBJ)
 $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
 	@echo " [LINK] $@"
 	@$(CC) $(CFLAGS) -o $@ $(HTTPRAPE_OBJ) $(HTTPRAPE_LIBS)
+
+$(MKROOT_BIN): $(MKROOT_OBJ)
+	@echo " [LINK] $@"
+	@$(CC) $(CFLAGS) -o $@ $(MKROOT_OBJ) $(MKROOT_LIBS)
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJ) $(ALL_DEP)
