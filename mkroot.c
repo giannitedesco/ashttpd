@@ -14,6 +14,7 @@
 #include <list.h>
 #include <hgang.h>
 #include <strpool.h>
+#include <os.h>
 
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
@@ -48,11 +49,6 @@ struct webroot {
 	strpool_t r_str_mem;
 	const char *r_base;
 };
-
-static const char *os_err(void)
-{
-	return strerror(errno);
-}
 
 static char *path_splice(const char *dir, const char *path)
 {

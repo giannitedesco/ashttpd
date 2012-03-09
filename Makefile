@@ -71,6 +71,8 @@ MKROOT_BIN := mkroot
 MKROOT_LIBS := 
 MKROOT_OBJ := hgang.o \
 		strpool.o \
+		fobuf.o \
+		os.o \
 		mkroot.o
 
 ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN) $(MKROOT_BIN)
