@@ -3,6 +3,7 @@ rfc2616.txt
 Config.mak
 *.o
 .*.d
+mkroot
 httpd
 httprape
 deadconn
