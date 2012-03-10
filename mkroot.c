@@ -50,12 +50,13 @@ struct webroot {
 	struct list_head r_uri;
 	struct list_head r_redirect;
 	struct list_head r_file;
-	unsigned int r_num_uri;
 	hgang_t r_uri_mem;
 	hgang_t r_obj_mem;
 	strpool_t r_str_mem;
 	const char *r_base;
 	trie_t r_trie;
+	uint64_t r_files_sz;
+	unsigned int r_num_uri;
 };
 
 static char *path_splice(const char *dir, const char *path)
@@ -163,6 +164,7 @@ static int sort_uris(struct webroot *r)
 static int webroot_prep(struct webroot *r)
 {
 	struct trie_entry *ent;
+	struct object *obj;
 	unsigned int i = 0;
 	struct uri *u;
 	int ret = 0;
@@ -170,6 +172,8 @@ static int webroot_prep(struct webroot *r)
 
 	if ( !sort_uris(r) )
 		goto out;
+
+	/* TODO: Sort files, assign object ID's */
 
 	ent = malloc(sizeof(*ent) * r->r_num_uri);
 	if ( NULL == ent )
@@ -190,11 +194,64 @@ static int webroot_prep(struct webroot *r)
 		cmd, trie_trie_size(t), trie_strtab_size(t));
 	r->r_trie = t;
 
+	r->r_files_sz = 0;
+	list_for_each_entry(obj, &r->r_file, o_list) {
+		r->r_files_sz += obj->o_u.file.size;
+	}
+
 	ret = 1;
 out_free:
 	free(ent);
 out:
 	return ret;
+}
+
+static int write_file(struct object *f, fobuf_t out)
+{
+	uint8_t buf[4096];
+	ssize_t ret;
+	int rc = 0;
+	int fd;
+
+	fd = open(f->o_u.file.path, O_RDONLY);
+	if ( fd < 0 ) {
+		fprintf(stderr, "%s: %s: open: %s\n",
+			cmd, f->o_u.file.path, os_err());
+		goto out;
+	}
+
+again:
+	ret = read(fd, buf, sizeof(buf));
+	if ( ret < 0 ) {
+		fprintf(stderr, "%s: %s: read: %s\n",
+			cmd, f->o_u.file.path, os_err());
+		goto out_close;
+	}
+
+	if ( ret && !fobuf_write(out, buf, ret) ) {
+		fprintf(stderr, "%s: %s: write: %s\n",
+			cmd, f->o_u.file.path, os_err());
+		goto out_close;
+	}
+
+	if ( ret )
+		goto again;
+
+	rc = 1;
+out_close:
+	fd_close(fd);
+out:
+	return rc;
+}
+
+static int write_files(struct webroot *r, fobuf_t out)
+{
+	struct object *obj;
+	list_for_each_entry(obj, &r->r_file, o_list) {
+		if ( !write_file(obj, out) )
+			return 0;
+	}
+	return 1;
 }
 
 static int webroot_write(struct webroot *r, fobuf_t out)
@@ -204,7 +261,8 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 		return 0;
 	if ( !trie_write_strtab(r->r_trie, out) )
 		return 0;
-	/* TODO: write data etc. */
+	if ( !write_files(r, out) )
+		return 0;
 	return 1;
 }
 
@@ -410,6 +468,14 @@ static int do_mkroot(const char *dir, const char *outfn)
 	if ( fd < 0 ) {
 		fprintf(stderr, "%s: %s: open: %s\n", cmd, outfn, os_err());
 		goto out_free;
+	}
+
+	if ( posix_fallocate(fd, 0, r->r_files_sz +
+				trie_trie_size(r->r_trie) +
+				trie_strtab_size(r->r_trie)) ) {
+		fprintf(stderr, "%s: %s: fallocate: %s\n",
+			cmd, outfn, os_err());
+		goto out_close;
 	}
 
 	out = fobuf_new(fd, 0);
