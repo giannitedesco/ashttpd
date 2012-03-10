@@ -23,6 +23,8 @@
 #include <vec.h>
 #include "trie.h"
 
+#define BUFFER_SIZE (1U << 20U)
+
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
 
@@ -69,6 +71,8 @@ struct webroot {
 	magic_t r_magic;
 	uint64_t r_files_sz;
 	unsigned int r_num_uri;
+	unsigned int r_num_redirect;
+	unsigned int r_num_file;
 };
 
 static char *path_splice(const char *dir, const char *path)
@@ -257,7 +261,7 @@ out:
 
 static int write_file(struct object *f, fobuf_t out)
 {
-	uint8_t buf[4096];
+	uint8_t buf[BUFFER_SIZE];
 	ssize_t ret;
 	int rc = 0;
 	int fd;
@@ -312,6 +316,7 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 		return 0;
 	/* TODO: write object descriptions */
 	/* TODO: write mime types */
+	printf("%s: Writing index\n", cmd);
 	if ( !write_files(r, out) )
 		return 0;
 	return 1;
@@ -407,6 +412,7 @@ static struct object *obj_redirect(struct webroot *r, const char *path)
 	}
 
 	list_add_tail(&obj->o_list, &r->r_redirect);
+	r->r_num_redirect++;
 
 	return obj;
 }
@@ -443,6 +449,7 @@ static struct object *obj_file(struct webroot *r,
 	obj->o_u.file.type = m;
 
 	list_add_tail(&obj->o_list, &r->r_file);
+	r->r_num_file++;
 
 	return obj;
 }
@@ -550,11 +557,15 @@ static int do_mkroot(const char *dir, const char *outfn)
 		goto out;
 	}
 
+	printf("%s: scanning %s\n", cmd, dir);
 	if ( !scan_item(r, "") )
 		goto out_free;
 
 	if ( !webroot_prep(r) )
 		goto out_free;
+
+	printf("%s: num_uri=%u num_redirect=%u num_file=%u\n",
+		cmd, r->r_num_uri, r->r_num_redirect, r->r_num_file);
 
 	fd = open(outfn, O_WRONLY|O_CREAT|O_TRUNC, 0600);
 	if ( fd < 0 ) {
@@ -568,7 +579,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 		goto out_close;
 	}
 
-	out = fobuf_new(fd, 0);
+	out = fobuf_new(fd, BUFFER_SIZE);
 	if ( NULL == out )
 		goto out_close;
 
