@@ -72,6 +72,7 @@ MKROOT_LIBS :=
 MKROOT_OBJ := hgang.o \
 		strpool.o \
 		fobuf.o \
+		trie.o \
 		os.o \
 		mkroot.o
 
