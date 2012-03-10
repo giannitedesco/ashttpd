@@ -21,6 +21,7 @@
 #include <fobuf.h>
 #include <os.h>
 #include <vec.h>
+#include <webroot-format.h>
 #include "trie.h"
 
 #define WRITE_FILES	1
@@ -32,6 +33,7 @@ static int dotfiles; /* whether to include dot files */
 struct mime_type {
 	struct list_head m_list;
 	const char *m_type;
+	uint32_t m_strtab_off;
 };
 
 #define OBJ_TYPE_FILE		0
@@ -48,6 +50,7 @@ struct object {
 		} file;
 		struct {
 			char *uri;
+			uint32_t strtab_off;
 		} redirect;
 	}o_u;
 };
@@ -233,6 +236,7 @@ static int webroot_prep(struct webroot *r)
 	if ( NULL == ent )
 		goto out;
 
+	/* Create the trie index */
 	list_for_each_entry(u, &r->r_uri, u_list) {
 		ent[i].t_str.v_ptr = (const uint8_t *)u->u_uri;
 		ent[i].t_str.v_len = strlen(u->u_uri);
@@ -248,6 +252,9 @@ static int webroot_prep(struct webroot *r)
 		cmd, trie_trie_size(t), trie_strtab_size(t));
 	r->r_trie = t;
 
+	/* TODO: Layout mime and redirect string tables */
+
+	/* Calculate files size */
 	r->r_files_sz = 0;
 	list_for_each_entry(obj, &r->r_file, o_list) {
 		r->r_files_sz += obj->o_u.file.size;
@@ -320,15 +327,73 @@ static int write_mimetab(struct webroot *r, fobuf_t out)
 	return 1;
 }
 
+static int write_redirtab(struct webroot *r, fobuf_t out)
+{
+	struct object *obj;
+
+	list_for_each_entry(obj, &r->r_redirect, o_list) {
+		if ( !fobuf_write(out, obj->o_u.redirect.uri,
+					strlen(obj->o_u.redirect.uri)) )
+			return 0;
+	}
+
+	return 1;
+}
+
+static int write_header(struct webroot *r, fobuf_t out)
+{
+	struct webroot_hdr hdr;
+
+	/* TODO: Fill these in */
+	hdr.h_magic = WEBROOT_MAGIC;
+	hdr.h_vers = WEBROOT_CURRENT_VER;
+
+	return fobuf_write(out, &hdr, sizeof(hdr));
+}
+
+static int write_redirect_objs(struct webroot *r, fobuf_t out)
+{
+	struct webroot_obj wobj;
+	struct object *obj;
+
+	list_for_each_entry(obj, &r->r_redirect, o_list) {
+		/* TODO: Fill these in */
+		if ( !fobuf_write(out, &wobj, sizeof(wobj)) )
+			return 0;
+	}
+
+	return 1;
+}
+
+static int write_file_objs(struct webroot *r, fobuf_t out)
+{
+	struct webroot_obj wobj;
+	struct object *obj;
+
+	list_for_each_entry(obj, &r->r_file, o_list) {
+		/* TODO: Fill these in */
+		if ( !fobuf_write(out, &wobj, sizeof(wobj)) )
+			return 0;
+	}
+
+	return 1;
+}
+
 static int webroot_write(struct webroot *r, fobuf_t out)
 {
-	/* TODO: write header */
+	if ( !write_header(r, out) )
+		return 0;
 	if ( !trie_write_trie(r->r_trie, out) )
+		return 0;
+	if ( !write_redirect_objs(r, out) )
+		return 0;
+	if ( !write_file_objs(r, out) )
 		return 0;
 	if ( !trie_write_strtab(r->r_trie, out) )
 		return 0;
-	/* TODO: write object descriptions */
 	if ( !write_mimetab(r, out) )
+		return 0;
+	if ( !write_redirtab(r, out) )
 		return 0;
 
 #if WRITE_FILES

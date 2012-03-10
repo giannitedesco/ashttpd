@@ -6,9 +6,6 @@
 #ifndef _TRIE_H
 #define _TRIE_H
 
-#define GIDX_INVALID_OID 0xffffffffU
-typedef uint32_t gidx_oid_t;
-
 struct trie_entry {
 	struct ro_vec t_str;
 	gidx_oid_t t_oid;

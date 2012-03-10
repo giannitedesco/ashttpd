@@ -11,9 +11,9 @@
 #include <strpool.h>
 #include <fobuf.h>
 #include <vec.h>
+#include <webroot-format.h>
 
 #include "trie.h"
-#include "trie-format.h"
 
 #define DEBUG_INCORE		0
 #define STRTAB_COMPRESS		1
