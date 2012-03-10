@@ -23,7 +23,8 @@
 #include <vec.h>
 #include "trie.h"
 
-#define BUFFER_SIZE (1U << 20U)
+#define WRITE_FILES	1
+#define BUFFER_SIZE	(1U << 20U)
 
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
@@ -307,6 +308,18 @@ static int write_files(struct webroot *r, fobuf_t out)
 	return 1;
 }
 
+static int write_mimetab(struct webroot *r, fobuf_t out)
+{
+	struct mime_type *m;
+
+	list_for_each_entry(m, &r->r_mime_type, m_list) {
+		if ( !fobuf_write(out, m->m_type, strlen(m->m_type)) )
+			return 0;
+	}
+
+	return 1;
+}
+
 static int webroot_write(struct webroot *r, fobuf_t out)
 {
 	/* TODO: write header */
@@ -315,10 +328,15 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 	if ( !trie_write_strtab(r->r_trie, out) )
 		return 0;
 	/* TODO: write object descriptions */
-	/* TODO: write mime types */
-	printf("%s: Writing index\n", cmd);
+	if ( !write_mimetab(r, out) )
+		return 0;
+
+#if WRITE_FILES
+	printf("%s: Writing files\n", cmd);
 	if ( !write_files(r, out) )
 		return 0;
+#endif
+
 	return 1;
 }
 
@@ -573,11 +591,13 @@ static int do_mkroot(const char *dir, const char *outfn)
 		goto out_free;
 	}
 
+#if WRITE_FILES
 	if ( posix_fallocate(fd, 0, webroot_output_size(r)) ) {
 		fprintf(stderr, "%s: %s: fallocate: %s\n",
 			cmd, outfn, os_err());
 		goto out_close;
 	}
+#endif
 
 	out = fobuf_new(fd, BUFFER_SIZE);
 	if ( NULL == out )
