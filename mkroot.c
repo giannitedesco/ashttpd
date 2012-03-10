@@ -26,6 +26,11 @@
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
 
+struct mime_type {
+	struct list_head m_list;
+	const char *m_type;
+};
+
 #define OBJ_TYPE_FILE		0
 #define OBJ_TYPE_REDIRECT	1
 struct object {
@@ -33,6 +38,7 @@ struct object {
 	unsigned int o_type;
 	union {
 		struct {
+			struct mime_type *type;
 			uint64_t size;
 			char *path;
 		} file;
@@ -52,8 +58,10 @@ struct webroot {
 	struct list_head r_uri;
 	struct list_head r_redirect;
 	struct list_head r_file;
+	struct list_head r_mime_type;
 	hgang_t r_uri_mem;
 	hgang_t r_obj_mem;
+	hgang_t r_mime_mem;
 	strpool_t r_str_mem;
 	const char *r_base;
 	trie_t r_trie;
@@ -99,25 +107,34 @@ static struct webroot *webroot_new(const char *base)
 	if ( NULL == r->r_obj_mem )
 		goto out_free_uri;
 
+	r->r_mime_mem = hgang_new(sizeof(struct mime_type), 0);
+	if ( NULL == r->r_mime_mem )
+		goto out_free_obj;
+
 	r->r_str_mem = strpool_new(0);
 	if ( NULL == r->r_str_mem )
-		goto out_free_obj;
+		goto out_free_mime;
 
 	r->r_magic = magic_open(MAGIC_MIME_TYPE|MAGIC_MIME_ENCODING);
 	if ( NULL == r->r_magic )
 		goto out_free_str;
 
 	if ( magic_load(r->r_magic, NULL) )
-		goto out_free_str;
+		goto out_free_magic;
 
 	INIT_LIST_HEAD(&r->r_uri);
 	INIT_LIST_HEAD(&r->r_redirect);
 	INIT_LIST_HEAD(&r->r_file);
+	INIT_LIST_HEAD(&r->r_mime_type);
 	r->r_base = base;
 	goto out;
 
+out_free_magic:
+	magic_close(r->r_magic);
 out_free_str:
 	strpool_free(r->r_str_mem);
+out_free_mime:
+	hgang_free(r->r_mime_mem);
 out_free_obj:
 	hgang_free(r->r_obj_mem);
 out_free_uri:
@@ -134,6 +151,7 @@ static void webroot_free(struct webroot *r)
 	if ( r ) {
 		hgang_free(r->r_uri_mem);
 		hgang_free(r->r_obj_mem);
+		hgang_free(r->r_mime_mem);
 		strpool_free(r->r_str_mem);
 		magic_close(r->r_magic);
 		trie_free(r->r_trie);
@@ -323,6 +341,37 @@ static struct uri *webroot_link(struct webroot *r,
 	return uri;
 }
 
+static uint64_t webroot_output_size(struct webroot *r)
+{
+	return r->r_files_sz +
+		trie_trie_size(r->r_trie) +
+		trie_strtab_size(r->r_trie);
+}
+
+static struct mime_type *mime_add(struct webroot *r, const char *mime)
+{
+	struct mime_type *m;
+
+	list_for_each_entry(m, &r->r_mime_type, m_list) {
+		if ( !strcmp(m->m_type, mime) )
+			return m;
+	}
+
+	m = hgang_alloc0(r->r_mime_mem);
+	if ( NULL == m )
+		return NULL;
+
+	m->m_type = webroot_strdup(r, mime);
+	if ( NULL == m->m_type ) {
+		hgang_return(r->r_mime_mem, m);
+		return NULL;
+	}
+
+	list_add(&m->m_list, &r->r_mime_type);
+
+	return m;
+}
+
 static struct object *obj_redirect(struct webroot *r, const char *path)
 {
 	struct object *obj;
@@ -344,12 +393,12 @@ static struct object *obj_redirect(struct webroot *r, const char *path)
 	return obj;
 }
 
-/* TODO: determine mime type */
 /* TODO: detect hardlinks */
 static struct object *obj_file(struct webroot *r,
 				const char *path,
 				uint64_t size)
 {
+	struct mime_type *m;
 	struct object *obj;
 	const char *mime;
 
@@ -360,7 +409,11 @@ static struct object *obj_file(struct webroot *r,
 	obj->o_type = OBJ_TYPE_FILE;
 
 	mime = magic_file(r->r_magic, path);
-	printf("%s -> %s\n", path, mime);
+	m = mime_add(r, mime);
+	if ( NULL == m ) {
+		hgang_return(r->r_obj_mem, obj);
+		return NULL;
+	}
 
 	obj->o_u.file.path = webroot_strdup(r, path);
 	if ( NULL == obj->o_u.file.path ) {
@@ -369,6 +422,7 @@ static struct object *obj_file(struct webroot *r,
 	}
 
 	obj->o_u.file.size = size;
+	obj->o_u.file.type = m;
 
 	list_add_tail(&obj->o_list, &r->r_file);
 
@@ -490,9 +544,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 		goto out_free;
 	}
 
-	if ( posix_fallocate(fd, 0, r->r_files_sz +
-				trie_trie_size(r->r_trie) +
-				trie_strtab_size(r->r_trie)) ) {
+	if ( posix_fallocate(fd, 0, webroot_output_size(r)) ) {
 		fprintf(stderr, "%s: %s: fallocate: %s\n",
 			cmd, outfn, os_err());
 		goto out_close;
