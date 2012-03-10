@@ -35,6 +35,7 @@ struct mime_type {
 #define OBJ_TYPE_REDIRECT	1
 struct object {
 	struct list_head o_list;
+	gidx_oid_t o_oid;
 	unsigned int o_type;
 	union {
 		struct {
@@ -192,6 +193,22 @@ static int sort_uris(struct webroot *r)
 	return 1;
 }
 
+static int sort_objects(struct webroot *r)
+{
+	struct object *obj;
+	gidx_oid_t oid = 0;
+
+	list_for_each_entry(obj, &r->r_redirect, o_list) {
+		obj->o_oid = oid++;
+	}
+
+	list_for_each_entry(obj, &r->r_file, o_list) {
+		obj->o_oid = oid++;
+	}
+
+	return 1;
+}
+
 static int webroot_prep(struct webroot *r)
 {
 	struct trie_entry *ent;
@@ -204,7 +221,8 @@ static int webroot_prep(struct webroot *r)
 	if ( !sort_uris(r) )
 		goto out;
 
-	/* TODO: Sort files, assign object ID's */
+	if ( !sort_objects(r) )
+		goto out;
 
 	ent = malloc(sizeof(*ent) * r->r_num_uri);
 	if ( NULL == ent )
@@ -213,7 +231,7 @@ static int webroot_prep(struct webroot *r)
 	list_for_each_entry(u, &r->r_uri, u_list) {
 		ent[i].t_str.v_ptr = (const uint8_t *)u->u_uri;
 		ent[i].t_str.v_len = strlen(u->u_uri);
-		ent[i].t_oid = i;
+		ent[i].t_oid = u->u_obj->o_oid;
 		i++;
 	}
 
