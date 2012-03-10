@@ -68,7 +68,7 @@ HTTPRAPE_OBJ := httprape.o \
 		os.o
 
 MKROOT_BIN := mkroot
-MKROOT_LIBS := 
+MKROOT_LIBS := -lmagic
 MKROOT_OBJ := hgang.o \
 		strpool.o \
 		fobuf.o \

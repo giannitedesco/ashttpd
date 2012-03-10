@@ -13,6 +13,8 @@
 #include <fcntl.h>
 #include <assert.h>
 
+#include <magic.h>
+
 #include <list.h>
 #include <hgang.h>
 #include <strpool.h>
@@ -55,6 +57,7 @@ struct webroot {
 	strpool_t r_str_mem;
 	const char *r_base;
 	trie_t r_trie;
+	magic_t r_magic;
 	uint64_t r_files_sz;
 	unsigned int r_num_uri;
 };
@@ -100,12 +103,21 @@ static struct webroot *webroot_new(const char *base)
 	if ( NULL == r->r_str_mem )
 		goto out_free_obj;
 
+	r->r_magic = magic_open(MAGIC_MIME_TYPE);
+	if ( NULL == r->r_magic )
+		goto out_free_str;
+
+	if ( magic_load(r->r_magic, NULL) )
+		goto out_free_str;
+
 	INIT_LIST_HEAD(&r->r_uri);
 	INIT_LIST_HEAD(&r->r_redirect);
 	INIT_LIST_HEAD(&r->r_file);
 	r->r_base = base;
 	goto out;
 
+out_free_str:
+	strpool_free(r->r_str_mem);
 out_free_obj:
 	hgang_free(r->r_obj_mem);
 out_free_uri:
@@ -123,6 +135,7 @@ static void webroot_free(struct webroot *r)
 		hgang_free(r->r_uri_mem);
 		hgang_free(r->r_obj_mem);
 		strpool_free(r->r_str_mem);
+		magic_close(r->r_magic);
 		trie_free(r->r_trie);
 		free(r);
 	}
@@ -261,6 +274,8 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 		return 0;
 	if ( !trie_write_strtab(r->r_trie, out) )
 		return 0;
+	/* TODO: write object descriptions */
+	/* TODO: write mime types */
 	if ( !write_files(r, out) )
 		return 0;
 	return 1;
@@ -329,18 +344,23 @@ static struct object *obj_redirect(struct webroot *r, const char *path)
 	return obj;
 }
 
+/* TODO: determine mime type */
 /* TODO: detect hardlinks */
 static struct object *obj_file(struct webroot *r,
 				const char *path,
 				uint64_t size)
 {
 	struct object *obj;
+	const char *mime;
 
 	obj = hgang_alloc0(r->r_obj_mem);
 	if ( NULL == obj )
 		return NULL;
 
 	obj->o_type = OBJ_TYPE_FILE;
+
+	mime = magic_file(r->r_magic, path);
+	printf("%s -> %s\n", path, mime);
 
 	obj->o_u.file.path = webroot_strdup(r, path);
 	if ( NULL == obj->o_u.file.path ) {
