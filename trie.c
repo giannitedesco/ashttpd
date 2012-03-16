@@ -482,6 +482,11 @@ uint64_t trie_trie_size(struct trie *r)
 	return sizeof(struct trie_dedge) * r->r_num_edges;
 }
 
+uint64_t trie_num_edges(struct trie *r)
+{
+	return r->r_num_edges;
+}
+
 uint64_t trie_strtab_size(struct trie *r)
 {
 	return r->r_strtab_sz;
