@@ -24,7 +24,7 @@
 #include <webroot-format.h>
 #include "trie.h"
 
-#define WRITE_FILES	0
+#define WRITE_FILES	1
 #define BUFFER_SIZE	(1U << 20U)
 
 static const char *cmd = "mkroot";
@@ -47,6 +47,7 @@ struct object {
 			struct mime_type *type;
 			uint64_t size;
 			char *path;
+			uint64_t off;
 		} file;
 		struct {
 			char *uri;
@@ -226,6 +227,7 @@ static int webroot_prep(struct webroot *r)
 	struct object *obj;
 	unsigned int i = 0;
 	struct uri *u;
+	uint64_t off;
 	int ret = 0;
 	trie_t t;
 
@@ -255,10 +257,24 @@ static int webroot_prep(struct webroot *r)
 		cmd, trie_trie_size(t), trie_strtab_size(t));
 	r->r_trie = t;
 
-	/* TODO: Layout mime and redirect string tables */
+	/* Layout mime and redirect string tables */
+	off = sizeof(struct webroot_hdr) +
+		trie_trie_size(r->r_trie) +
+		sizeof(struct webroot_redirect) * r->r_num_redirect +
+		sizeof(struct webroot_file) * r->r_num_file +
+		trie_strtab_size(r->r_trie);
+
 	list_for_each_entry(m, &r->r_mime_type, m_list) {
+		m->m_strtab_off = off;
+		off += strlen(m->m_type);
+		r->r_mimetab_sz += strlen(m->m_type);
 	}
+
+	r->r_redirtab_sz = 0;
 	list_for_each_entry(obj, &r->r_redirect, o_list) {
+		obj->o_u.redirect.strtab_off = off;
+		off += strlen(obj->o_u.redirect.uri);
+		r->r_redirtab_sz += strlen(obj->o_u.redirect.uri);
 	}
 
 	/* TDDO: layout files */
@@ -266,9 +282,10 @@ static int webroot_prep(struct webroot *r)
 	/* Calculate files size */
 	r->r_files_sz = 0;
 	list_for_each_entry(obj, &r->r_file, o_list) {
+		obj->o_u.file.off = off;
+		off += obj->o_u.file.size;
 		r->r_files_sz += obj->o_u.file.size;
 	}
-
 	ret = 1;
 out_free:
 	free(ent);
@@ -362,8 +379,9 @@ static int write_header(struct webroot *r, fobuf_t out)
 	hdr.h_magic = WEBROOT_MAGIC;
 	hdr.h_vers = WEBROOT_CURRENT_VER;
 
-	/* TODO: simple way to map all index data */
-	hdr.h_files_begin = 0;
+	/* provides simple way to map all index data */
+	hdr.h_files_begin = sizeof(hdr) +
+			sizeof(struct trie_dedge) * trie_num_edges(r->r_trie);
 
 	return fobuf_write(out, &hdr, sizeof(hdr));
 }
@@ -389,7 +407,8 @@ static int write_file_objs(struct webroot *r, fobuf_t out)
 	struct object *obj;
 
 	list_for_each_entry(obj, &r->r_file, o_list) {
-		/* TODO: Fill in file offsets */
+		wf.f_off = obj->o_u.file.off;
+		wf.f_len = obj->o_u.file.size;
 		wf.f_type = obj->o_u.file.type->m_strtab_off;
 		wf.f_type_len = strlen(obj->o_u.file.type->m_type);
 		if ( !fobuf_write(out, &wf, sizeof(wf)) )
@@ -469,9 +488,14 @@ static struct uri *webroot_link(struct webroot *r,
 
 static uint64_t webroot_output_size(struct webroot *r)
 {
-	return r->r_files_sz +
+	return sizeof(struct webroot_hdr) +
 		trie_trie_size(r->r_trie) +
-		trie_strtab_size(r->r_trie);
+		sizeof(struct webroot_redirect) * r->r_num_redirect +
+		sizeof(struct webroot_file) * r->r_num_file +
+		trie_strtab_size(r->r_trie) +
+		r->r_mimetab_sz +
+		r->r_redirtab_sz +
+		r->r_files_sz;
 }
 
 static struct mime_type *mime_add(struct webroot *r, const char *mime)
@@ -571,7 +595,7 @@ static int scan_dir(struct webroot *r, const char *dir, const char *path)
 		goto out;
 	}
 
-	/* TODO: sort entries by inode number */
+	/* TODO: sort entries by inode number for performance */
 	while( (e = readdir(d)) ) {
 		char *uri;
 		if ( !strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") )
@@ -678,6 +702,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 	}
 
 #if WRITE_FILES
+	printf("%s: fallocate: %"PRId64" bytes\n", cmd, webroot_output_size(r));
 	if ( posix_fallocate(fd, 0, webroot_output_size(r)) ) {
 		fprintf(stderr, "%s: %s: fallocate: %s\n",
 			cmd, outfn, os_err());
