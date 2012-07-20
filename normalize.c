@@ -46,13 +46,13 @@ static int nads_ws(unsigned long x)
 static unsigned int nads_errcode;
 
 static const char *estr[]={
-	[ NADS_ERR_SUCCESS ] "Success",
-	[ NADS_ERR_NO_EMULATION ] "Unable to emulate specified webserver",
-	[ NADS_ERR_BAD_HEX ] "Bad Hex encoding",
-	[ NADS_ERR_TRAVERSAL ] "Attempt to traverse outside of webroot",
-	[ NADS_ERR_BAD_UTF8 ] "Bad UTF-8 character sequence",
-	[ NADS_ERR_NULL ] "NUL character insertion",
-	[ NADS_ERR_OOM ] "Out of memory",
+	[ NADS_ERR_SUCCESS ] = "Success",
+	[ NADS_ERR_NO_EMULATION ] = "Unable to emulate specified webserver",
+	[ NADS_ERR_BAD_HEX ] = "Bad Hex encoding",
+	[ NADS_ERR_TRAVERSAL ] = "Attempt to traverse outside of webroot",
+	[ NADS_ERR_BAD_UTF8 ] = "Bad UTF-8 character sequence",
+	[ NADS_ERR_NULL ] = "NUL character insertion",
+	[ NADS_ERR_OOM ] = "Out of memory",
 };
 
 /* nads_error:
@@ -74,7 +74,7 @@ unsigned int nads_errno(void)
 
 /* nads_strerror:
  * @err: A nads error code returned from nads_error()
- * 
+ *
  * Given a nads error code, return a string describing the error.
  *
  * Return value: A pointer to a string constant containing an
@@ -105,28 +105,28 @@ static char uribuf[NADS_MAX_URI];
 /* ===== Ctype like functions ===== */
 #define T_HEX (1<<0)
 static const unsigned char tbl[256]={
-	['a'] T_HEX,
-	['b'] T_HEX,
-	['c'] T_HEX,
-	['d'] T_HEX,
-	['e'] T_HEX,
-	['f'] T_HEX,
-	['A'] T_HEX,
-	['B'] T_HEX,
-	['C'] T_HEX,
-	['D'] T_HEX,
-	['E'] T_HEX,
-	['F'] T_HEX,
-	['0'] T_HEX,
-	['1'] T_HEX,
-	['2'] T_HEX,
-	['3'] T_HEX,
-	['4'] T_HEX,
-	['5'] T_HEX,
-	['6'] T_HEX,
-	['7'] T_HEX,
-	['8'] T_HEX,
-	['9'] T_HEX,
+	['a'] = T_HEX,
+	['b'] = T_HEX,
+	['c'] = T_HEX,
+	['d'] = T_HEX,
+	['e'] = T_HEX,
+	['f'] = T_HEX,
+	['A'] = T_HEX,
+	['B'] = T_HEX,
+	['C'] = T_HEX,
+	['D'] = T_HEX,
+	['E'] = T_HEX,
+	['F'] = T_HEX,
+	['0'] = T_HEX,
+	['1'] = T_HEX,
+	['2'] = T_HEX,
+	['3'] = T_HEX,
+	['4'] = T_HEX,
+	['5'] = T_HEX,
+	['6'] = T_HEX,
+	['7'] = T_HEX,
+	['8'] = T_HEX,
+	['9'] = T_HEX,
 };
 
 /* chartype:
@@ -248,7 +248,7 @@ static int n_hex(char *buf)
 		nads_errcode = NADS_ERR_BAD_HEX;
 		return 0;
 	}
-	
+
 	*out='\0';
 	return 1;
 }

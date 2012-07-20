@@ -25,6 +25,7 @@ CFLAGS := -g -pipe -O2 -Wall \
 	-Wmissing-noreturn \
 	-finline-functions \
 	-Wmissing-format-attribute \
+	-Wno-cast-align \
 	-fwrapv \
 	-Iinclude \
 	$(EXTRA_DEFS) 
