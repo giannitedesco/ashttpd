@@ -41,7 +41,6 @@ HTTPD_OBJ = httpd.o \
 		io_sync.o \
 		io_sendfile.o \
 		io_async.o \
-		io_dasync.o \
 		$(AIO_SENDFILE_OBJ) \
 		nbio.o \
 		nbio-epoll.o \
@@ -120,11 +119,6 @@ $(MKROOT_BIN): $(MKROOT_OBJ)
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJ) $(ALL_DEP)
-
-webroot.h: makeroot MANIFEST ROOT $(CLEAN_DEP)
-	./makeroot `cat ROOT` < MANIFEST
-
-root: webroot.h
 
 markov.c: mkmarkov WALK
 	./mkmarkov < WALK

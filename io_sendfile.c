@@ -13,7 +13,10 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
-static int io_sendfile_init(struct iothread *t, int webroot_fd)
+/* what's the right setting here? */
+#define SENDFILE_CHUNK (1 << 16)
+
+static int io_sendfile_init(struct iothread *t)
 {
 	return os_sigpipe_ignore();
 }
@@ -29,8 +32,8 @@ static int io_sendfile_write(struct iothread *t, http_conn_t h)
 
 	/* let's try to be fair */
 	/* TODO: does it even make a difference? */
-	if ( len > 8192 )
-		len = 8192;
+	if ( len > SENDFILE_CHUNK )
+		len = SENDFILE_CHUNK;
 
 	ret = sendfile(http_conn_socket(h), fd, &off, len);
 	if ( ret < 0 && errno == EAGAIN ) {
@@ -65,6 +68,5 @@ struct http_fio fio_sendfile = {
 	.prep = io_sendfile_prep,
 	.write = io_sendfile_write,
 	.abort = io_sendfile_abort,
-	.webroot_fd = generic_webroot_fd,
 	.fini = io_sendfile_fini,
 };

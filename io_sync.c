@@ -12,7 +12,7 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
-static int io_sync_init(struct iothread *t, int webroot_fd)
+static int io_sync_init(struct iothread *t)
 {
 	return 1;
 }
@@ -37,7 +37,7 @@ static int io_sync_write(struct iothread *t, http_conn_t h)
 	if ( wsz ) {
 		size_t sz;
 		int eof = 0;
-		
+
 		sz = ( wsz > data_len ) ? data_len : wsz;
 
 		if ( !fd_pread(fd, data_off, wptr, &sz, &eof) || eof ) {
@@ -114,6 +114,5 @@ struct http_fio fio_sync = {
 	.prep = io_sync_prep,
 	.write = io_sync_write,
 	.abort = io_sync_abort,
-	.webroot_fd = generic_webroot_fd,
 	.fini = io_sync_fini,
 };

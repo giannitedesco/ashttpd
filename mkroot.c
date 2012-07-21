@@ -246,6 +246,10 @@ static int webroot_prep(struct webroot *r)
 		ent[i].t_str.v_ptr = (const uint8_t *)u->u_uri;
 		ent[i].t_str.v_len = strlen(u->u_uri);
 		ent[i].t_oid = u->u_obj->o_oid;
+		printf("%.*s (%d)\n",
+			(int)ent[i].t_str.v_len,
+			ent[i].t_str.v_ptr,
+			ent[i].t_oid);
 		i++;
 	}
 
@@ -276,8 +280,6 @@ static int webroot_prep(struct webroot *r)
 		off += strlen(obj->o_u.redirect.uri);
 		r->r_redirtab_sz += strlen(obj->o_u.redirect.uri);
 	}
-
-	/* TDDO: layout files */
 
 	/* Calculate files size */
 	r->r_files_sz = 0;
@@ -380,8 +382,13 @@ static int write_header(struct webroot *r, fobuf_t out)
 	hdr.h_vers = WEBROOT_CURRENT_VER;
 
 	/* provides simple way to map all index data */
-	hdr.h_files_begin = sizeof(hdr) +
-			sizeof(struct trie_dedge) * trie_num_edges(r->r_trie);
+	hdr.h_files_begin = sizeof(struct webroot_hdr) +
+		trie_trie_size(r->r_trie) +
+		sizeof(struct webroot_redirect) * r->r_num_redirect +
+		sizeof(struct webroot_file) * r->r_num_file +
+		trie_strtab_size(r->r_trie) +
+		r->r_mimetab_sz +
+		r->r_redirtab_sz;
 
 	return fobuf_write(out, &hdr, sizeof(hdr));
 }

@@ -44,7 +44,6 @@ struct trie_edge {
 	unsigned int		e_num_edges;
 	unsigned int		e_bfs_idx;
 	struct list_head	e_edges;
-	gidx_oid_t		e_keyid;
 	size_t			e_strtab_ofs;
 };
 
@@ -269,9 +268,6 @@ static void do_layout_inorder(struct trie_edge *e, gidx_oid_t *pk)
 {
 	struct trie_edge *ee;
 
-	if ( e->e_terminal )
-		e->e_keyid = (*pk)++;
-
 	list_for_each_entry(ee, &e->e_edges, e_list)
 		do_layout_inorder(ee, pk);
 }
@@ -406,7 +402,7 @@ static int node_to_disk(fobuf_t buf, struct trie_edge *e, uint32_t idx)
 	memset(&d, 0, sizeof(d));
 
 	if ( e->e_terminal ) {
-		d.re_oid = e->e_keyid;
+		d.re_oid = e->e_terminal->t_oid;
 	}else{
 		d.re_oid = GIDX_INVALID_OID;
 	}

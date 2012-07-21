@@ -30,7 +30,7 @@ struct _http_conn {
 	struct http_buf	*h_req;
 	struct http_buf	*h_res;
 
-	void 		*h_io_priv;
+	void		*h_io_priv;
 	off_t		h_data_off;
 	size_t		h_data_len;
 
@@ -46,7 +46,7 @@ struct _http_conn {
 static struct http_fio *fio_current;
 static unsigned int concurrency;
 static hgang_t conns;
-static int webroot_fd = -1;
+static webroot_t webroot;
 
 static const char * const resp400 =
 	"HTTP/1.1 400 Bad Request\r\n"
@@ -63,12 +63,18 @@ static const char * const resp301 =
 	"\r\n"
 	"<html><head><title>Object Moved</title></head>"
 	"<body><h1>Object Moved</body></html>";
+static const char * const resp404 =
+	"HTTP/1.1 404 Object Not Found\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 78\r\n"
+	"\r\n"
+	"<html><head><title>Fuck Off</title></head>"
+	"<body><h1>y u no find?</body></html>";
 
 
 #define _io_init	(*fio_current->init)
 #define _io_prep	(*fio_current->prep)
 #define _io_write	(*fio_current->write)
-#define _io_webroot_fd	(*fio_current->webroot_fd)
 #define _io_abort	(*fio_current->abort)
 #define _io_fini	(*fio_current->fini)
 
@@ -91,7 +97,7 @@ static void http_oom(struct iothread *t, struct nbio *listener)
 
 static void http_kill(struct iothread *t, struct _http_conn *h)
 {
-	/* ma have got here already due to data complete in a non
+	/* may have got here already due to data complete in a non
 	 * nbio context (eg. AIO) on a non-persistent HTTP connection
 	 */
 	if ( h->h_nbio.fd == -1 )
@@ -131,7 +137,7 @@ size_t http_conn_data(http_conn_t h, int *fd, off_t *off)
 	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
 
 	if ( fd )
-		*fd = webroot_fd;
+		*fd = webroot_get_fd(webroot);
 	if ( off )
 		*off = h->h_data_off;
 	return h->h_data_len;
@@ -287,6 +293,21 @@ static void http_write(struct iothread *t, struct nbio *n)
 }
 
 /* FIXME: persistent connection handling */
+static int response_404(struct iothread *t, struct _http_conn *h)
+{
+	uint8_t *ptr;
+	size_t sz;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp404));
+
+	memcpy(ptr, resp404, strlen(resp404));
+	buf_done_write(h->h_res, strlen(resp404));
+	h->h_data_len = 0;
+	return 1;
+}
+
+/* FIXME: persistent connection handling */
 static int response_400(struct iothread *t, struct _http_conn *h)
 {
 	uint8_t *ptr;
@@ -330,8 +351,7 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
 {
-	const struct webroot_name *n;
-	unsigned int code, mime_type;
+	struct webroot_name n;
 	struct ro_vec search_uri = r->uri;
 	struct nads nads;
 	uint8_t *ptr;
@@ -353,21 +373,22 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	search_uri.v_ptr = (uint8_t *)nads.uri;
 	search_uri.v_len = strlen(nads.uri);
 
-	n = webroot_find(&search_uri);
-	if ( NULL == n ) {
+	if ( !webroot_find(webroot, &search_uri, &n) ) {
+#if 0
 		h->h_data_off = obj404_f_ofs;
 		h->h_data_len = obj404_f_len;
 		mime_type = obj404_mime_type;
-		code = 404;
+#else
+		return response_404(t, h);
+#endif
 	}else{
-		switch(n->mime_type) {
-		case MIME_TYPE_MOVED_PERMANENTLY:
-			return response_301(t, h, &r->host, &n->u.moved);
-		default:
-			h->h_data_off = n->u.data.f_ofs;
-			h->h_data_len = n->u.data.f_len;
-			mime_type = n->mime_type;
-			code = 200;
+		switch(n.code) {
+		case HTTP_MOVED_PERMANENTLY:
+			return response_301(t, h, &r->host, &n.u.moved);
+		case HTTP_FOUND:
+			h->h_data_off = n.u.data.f_ofs;
+			h->h_data_len = n.u.data.f_len;
+			break;
 		}
 	}
 
@@ -381,14 +402,15 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	ptr = buf_write(h->h_res, &sz);
 	len = snprintf((char *)ptr, sz,
 			"HTTP/1.1 %u %s\r\n"
-			"Content-Type: %s\r\n"
+			"Content-Type: %.*s\r\n"
 			"Content-Length: %zu\r\n"
 			"Connection: %s\r\n"
 			"Server: ashttpd, experimental l33tness\r\n"
 			"\r\n",
-			code,
-			(code == 200) ? "OK": "Not Found",
-			webroot_mime_type(mime_type),
+			n.code,
+			(n.code == HTTP_FOUND) ? "OK": "Not Found",
+			(int)n.mime_type.v_len,
+			n.mime_type.v_ptr,
 			h->h_data_len,
 			(h->h_conn_close) ? "Close" : "Keep-Alive");
 	if ( len < 0 )
@@ -576,9 +598,11 @@ static struct http_fio *io_model(const char *name)
 		/* Kernel AIO on O_DIRECT file descriptor, re-implementing
 		 * page cache in userspace fucking alice in wonderland
 		 */
+#if 0
 		{"dasync", &fio_dasync},
 		{"direct", &fio_dasync},
 		{"dio", &fio_dasync},
+#endif
 
 		/* Kernel based AIO / sendfile utilizing kernel pipe
 		 * buffers and splicing... experimental
@@ -603,14 +627,17 @@ static struct http_fio *io_model(const char *name)
 
 int main(int argc, char **argv)
 {
-	const char * const webroot_fn = "webroot.objdb";
+	const char * webroot_fn;
 	struct iothread iothread;
 
-	fio_current = io_model((argc > 1) ? argv[1] : NULL);
-	printf("data: %s model\n", fio_current->label);
+	webroot_fn = (argc > 1) ? argv[1] : "webroot.objdb";
+	fio_current = io_model((argc > 2) ? argv[2] : NULL);
 
-	webroot_fd = _io_webroot_fd(webroot_fn);
-	if ( webroot_fd < 0 ) {
+	printf("data: %s model\n", fio_current->label);
+	printf("webroot: %s\n", webroot_fn);
+
+	webroot = webroot_open(webroot_fn);
+	if ( NULL == webroot ) {
 		fprintf(stderr, "webroot: %s: %s\n", webroot_fn, os_err());
 		return EXIT_FAILURE;
 	}
@@ -629,7 +656,7 @@ int main(int argc, char **argv)
 	listener_inet(&iothread, SOCK_STREAM, IPPROTO_TCP,
 			0, 1234, http_conn, NULL, http_oom);
 
-	if ( !_io_init(&iothread, webroot_fd) ) {
+	if ( !_io_init(&iothread) ) {
 		return EXIT_FAILURE;
 	}
 
@@ -638,6 +665,7 @@ int main(int argc, char **argv)
 	}while ( !list_empty(&iothread.active) );
 
 	nbio_fini(&iothread);
+	webroot_close(webroot);
 
 	return EXIT_SUCCESS;
 }

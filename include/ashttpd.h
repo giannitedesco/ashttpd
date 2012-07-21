@@ -13,10 +13,12 @@
 #include <vec.h>
 #include <os.h>
 
-#define MIME_TYPE_MOVED_PERMANENTLY	-401
+typedef struct _webroot *webroot_t;
+
+#define HTTP_FOUND			200
+#define HTTP_MOVED_PERMANENTLY		301
 struct webroot_name {
-	struct ro_vec name;
-	int mime_type;
+	struct ro_vec mime_type;
 	union {
 		struct {
 			off_t f_ofs;
@@ -24,15 +26,13 @@ struct webroot_name {
 		}data;
 		struct ro_vec moved;
 	}u;
+	unsigned int code;
 };
 
-_private int generic_webroot_fd(const char *fn);
-_private const struct webroot_name *webroot_find(struct ro_vec *uri);
-_private const char * const webroot_mime_type(unsigned int idx);
-
-/* FIXME: more comprehensive handling of "code" pages */
-_private extern const off_t obj404_f_ofs;
-_private extern const size_t obj404_f_len;
-_private extern const unsigned int obj404_mime_type;
+_private webroot_t webroot_open(const char *fn);
+_private int webroot_get_fd(webroot_t r);
+_private int webroot_find(webroot_t r, const struct ro_vec *uri,
+				struct webroot_name *out);
+_private void webroot_close(webroot_t r);
 
 #endif /* _ASHTTPD_H */

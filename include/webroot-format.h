@@ -20,7 +20,7 @@
  *
  * Notes on limits:
  *  - max 2^24 - 1 files
- *  - 4GB of combined mimet types and redirects
+ *  - 4GB of combined mime types and redirects
 */
 
 #define WEBROOT_MAGIC		((0x37 << 24) | (0x13 << 16) | 'W' << 8 | 'w')

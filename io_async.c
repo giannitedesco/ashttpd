@@ -104,7 +104,7 @@ static void aio_event(struct iothread *t, void *priv, eventfd_t val)
 		handle_completion(t, ev[i].obj, ev[i].data, ev[i].res);
 }
 
-static int io_async_init(struct iothread *t, int webroot_fd)
+static int io_async_init(struct iothread *t)
 {
 	int ret;
 
@@ -212,7 +212,6 @@ struct http_fio fio_async = {
 	.prep = io_async_prep,
 	.write = io_async_write,
 	.abort = io_async_abort,
-	.webroot_fd = generic_webroot_fd,
 	.init = io_async_init,
 	.fini = io_async_fini,
 };
