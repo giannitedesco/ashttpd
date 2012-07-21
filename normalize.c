@@ -174,12 +174,12 @@ static char hexchar(unsigned int c)
 static int n_hex(char *buf)
 {
 	char *in, *out;
-	int state=0;
-	char hbuf[5]={0,0,0,0,0};
-	int i=0;
-	int maxlen=0;
+	int state = 0;
+	char hbuf[5] = {0,0,0,0,0};
+	int i = 0;
+	int maxlen = 0;
 
-	for(in=out=buf; *in; in++) {
+	for(in = out = buf; *in; in++) {
 		switch (state) {
 		case 0:
 			if ( *in == '%' ) {
@@ -205,15 +205,15 @@ static int n_hex(char *buf)
 
 					state=0;
 
-					d1 = hexchar(hbuf[0])<<4;
+					d1 = hexchar(hbuf[0]) << 4;
 					d1 |= hexchar(hbuf[1]);
-					d2 = hexchar(hbuf[2])<<4;
+					d2 = hexchar(hbuf[2]) << 4;
 					d2 |= hexchar(hbuf[3]);
 
 					/* FIXME: Treat %u00XX as %XX ? */
-					if ( maxlen==2 && d1==0 ) {
-						d1=d2;
-						maxlen=1;
+					if ( maxlen == 2 && d1 == 0 ) {
+						d1 = d2;
+						maxlen = 1;
 					}
 
 					/* Can't put NULs in the stream */
@@ -226,7 +226,7 @@ static int n_hex(char *buf)
 					if ( maxlen==2 )
 						*out++ = d2;
 				}
-			}else if ( maxlen==1 ) {
+			}else if ( maxlen == 1 ) {
 				/* IIS seems to ignore percent signs
 				 * on their own followed by crap...
 				 */
@@ -253,7 +253,6 @@ static int n_hex(char *buf)
 	return 1;
 }
 
-/* Count path components */
 /* n_pcount:
  * @buf: A string containing a URL.
  *
@@ -264,21 +263,21 @@ static int n_hex(char *buf)
  */
 static int n_pcount(char *buf)
 {
-	int cnt=0;
+	int cnt = 0;
 	char *in, *out;
-	char *last=NULL;
+	char *last = NULL;
 
-	for(in=out=buf; *in; in++){
-		if ( *in=='\\' )
-			*in='/';
+	for(in = out = buf; *in; in++){
+		if ( *in == '\\' )
+			*in = '/';
 
-		if ( *in=='/' ) {
+		if ( *in == '/' ) {
 			if ( last && last == in-1 ) {
 				last=in;
 				continue;
 			}
 
-			last=in;
+			last = in;
 			cnt++;
 		}
 
@@ -289,7 +288,7 @@ static int n_pcount(char *buf)
 		}
 	}
 
-	*out='\0';
+	*out = '\0';
 	return cnt;
 }
 
@@ -307,8 +306,8 @@ static int n_pcount(char *buf)
 */
 static int n_path(char *buf)
 {
-	int x=n_pcount(buf);
-	char *obuf=buf;
+	int x = n_pcount(buf);
+	char *obuf = buf;
 	char *c[x];
 	int in,out;
 	int i=0;
@@ -316,15 +315,15 @@ static int n_path(char *buf)
 
 	/* Grab the directory components */
 	for(; *buf; buf++) {
-		if ( *buf=='/' ) {
-			*buf=0;
-			c[i]=buf+1;
+		if ( *buf == '/' ) {
+			*buf = 0;
+			c[i] = buf + 1;
 			i++;
 		}
 	}
 
 	/* Strip out /./ and /../ */
-	for(in=out=0; in<x; in++) {
+	for(in = out = 0; in < x; in++) {
 		if ( !strcmp(c[in], ".") )
 			continue;
 
@@ -336,7 +335,7 @@ static int n_path(char *buf)
 			continue;
 		}
 
-		c[out++]=c[in];	
+		c[out++]=c[in];
 	}
 
 	/* Reconstruct the URL */
@@ -353,8 +352,8 @@ static int n_path(char *buf)
 		}
 	}
 
-	*obuf='/';
-	*str=0;
+	*obuf = '/';
+	*str = 0;
 
 	return 1;
 }
@@ -408,20 +407,22 @@ static void n_ucs4(uint32_t *n, char *buf, int len)
 {
 	int s;
 	int i;
-	char fmask[6]={
+	static const char fmask[6] = {
 		0x01|0x02|0x04|0x08|0x10,
 		0x01|0x02|0x04|0x08,
 		0x01|0x02|0x04,
 		0x01|0x02,
 		0x01,
+		0,
 	};
-	*n=0;
 
-	for(s=0,i=len; i-- > 0; s+=6) {
+	*n = 0;
+
+	for(s = 0,i = len; i-- > 0; s += 6) {
 		char mask;
 
-		if ( i==0 ) {
-			mask = fmask[len-2];
+		if ( i == 0 ) {
+			mask = fmask[len - 2];
 		}else{
 			mask = 0x3f;
 		}
@@ -453,7 +454,7 @@ static int n_utf8(char *buf)
 			return 0;
 		}
 
-		if ( state==0 ) {
+		if ( state == 0 ) {
 			if ( *in & 0x80 ) {
 				char n=0x40;
 
@@ -463,9 +464,9 @@ static int n_utf8(char *buf)
 					n >>= 1;
 				}
 
-				chr[0]=*in;
-				state=1;
-				i=1;
+				chr[0] = *in;
+				state = 1;
+				i = 1;
 			}else{
 				*out = *in;
 				out++;
@@ -503,7 +504,7 @@ static int n_utf8(char *buf)
 	return 1;
 }
 
-/* n_utf8:
+/* nads_normalize:
  * @n: A nads structure with buf set
  *
  * Normalizes a URL and passes it on to the signature detection engines
@@ -518,13 +519,16 @@ int nads_normalize(struct nads *n)
 	if ( !n_hex(n->uri) )
 		return NADS_FAIL;
 
+	if ( nads_ws(NADS_WS_DOUBLE_HEX) && !n_hex(n->uri) )
+		return NADS_FAIL;
+
 	if ( !n_utf8(n->uri) )
 		return NADS_FAIL;
 
 	if ( !n_path(n->uri) )
 		return NADS_FAIL;
 
-	/* Process the query string if one exists */
+	/* TODO: Process the query string if one exists */
 	if ( n->query == NULL )
 		goto finish;
 

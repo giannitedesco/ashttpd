@@ -4,7 +4,7 @@
 struct nads {
 	const char	*buf;
 	size_t		buf_len;
-	char 		*uri;
+	char		*uri;
 	char		*query;
 };
 
