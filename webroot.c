@@ -7,7 +7,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
-#if 0
+#if 1
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -27,9 +27,6 @@ struct _webroot {
 	const uint8_t *r_strtab;
 };
 
-struct str_cond_ordered {
-};
-
 static uint32_t trie_edges_index(const struct trie_dedge *e)
 {
 	return (e->re_edges_hi << 16) | e->re_edges_idx;
@@ -45,7 +42,7 @@ static int string_is_resident(const struct trie_dedge *e)
 	return e->re_strtab_len < 4;
 }
 
-static int64_t trie_query(struct _webroot *r,
+static gidx_oid_t trie_query(struct _webroot *r,
 				const struct trie_dedge *re,
 				unsigned int num_edges,
 				struct ro_vec *str)
@@ -97,6 +94,7 @@ static int64_t trie_query(struct _webroot *r,
 			suff.v_len -= match.v_len;
 			if ( !suff.v_len ) {
 				//DDEBUG("DONE");
+				printf("found %d\n", re[i].re_oid);
 				return re[i].re_oid;
 			}
 			dprintf("RECURSE %d => %d\n", edges_idx,
@@ -106,7 +104,7 @@ static int64_t trie_query(struct _webroot *r,
 		}
 	}
 
-	return -1;
+	return GIDX_INVALID_OID;
 }
 
 static int map_webroot(struct _webroot *r, uint64_t sz)
@@ -207,10 +205,12 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 				struct webroot_name *out)
 {
 	struct ro_vec match = *uri;
-	int64_t idx;
+	gidx_oid_t idx;
 
+	printf("matching %.*s\n", (int)match.v_len, match.v_ptr);
 	idx = trie_query(r, r->r_trie, 1, &match);
-	if ( idx < 0 ) {
+	if ( idx == GIDX_INVALID_OID ) {
+		printf("NOPE\n\n");
 		return 0;
 	}
 
@@ -231,8 +231,10 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 		out->mime_type.v_ptr = r->r_map + file->f_type;
 		out->mime_type.v_len = file->f_type_len;
 		out->u.data.f_ofs = file->f_off;
-		out->u.data.f_len = file->f_off;
+		out->u.data.f_len = file->f_len;
 	}
+
+	printf("\n");
 
 	return 1;
 }
