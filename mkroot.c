@@ -670,6 +670,7 @@ static int scan_item(struct webroot *r, const char *u)
 		if ( NULL == dpath )
 			goto out_free;
 
+		printf("link %s -> %s\n", u, dpath);
 		obj = obj_redirect(r, dpath);
 		free(dpath);
 		if ( NULL == obj )

@@ -15,7 +15,7 @@
 
 #include "trie.h"
 
-#define DEBUG_INCORE		1
+#define DEBUG_INCORE		0
 #define STRTAB_COMPRESS		1
 
 struct trie {

@@ -7,7 +7,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
@@ -66,8 +66,7 @@ static gidx_oid_t trie_query(struct _webroot *r,
 			suff.v_ptr += match.v_len;
 			suff.v_len -= match.v_len;
 			if ( !suff.v_len ) {
-				//DDEBUG("DONE");
-				printf("found %d\n", re[i].re_oid);
+				dprintf("found %d\n", re[i].re_oid);
 				return re[i].re_oid;
 			}
 			dprintf("RECURSE %d => %d\n", edges_idx,
@@ -184,10 +183,10 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 	struct ro_vec match = *uri;
 	gidx_oid_t idx;
 
-	printf("matching %.*s\n", (int)match.v_len, match.v_ptr);
+	dprintf("matching %.*s\n", (int)match.v_len, match.v_ptr);
 	idx = trie_query(r, r->r_trie, 1, &match);
 	if ( idx == GIDX_INVALID_OID ) {
-		printf("NOPE\n\n");
+		dprintf("NOPE\n\n");
 		return 0;
 	}
 	assert(idx < r->r_num_oid);
@@ -200,7 +199,7 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 
 		out->u.moved.v_ptr = r->r_map + redir->r_off;
 		out->u.moved.v_len = redir->r_len;
-		printf("redirect %.*s -> %.*s\n",
+		dprintf("redirect %.*s -> %.*s\n",
 			(int)uri->v_len,
 			uri->v_ptr,
 			(int)redir->r_len,
@@ -208,7 +207,7 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 	}else{
 		const struct webroot_file *file;
 
-		printf("file %u - %u\n", idx, r->r_num_redirect);
+		dprintf("file %u - %u\n", idx, r->r_num_redirect);
 		file = r->r_file + (idx - r->r_num_redirect);
 		out->code = HTTP_FOUND;
 
@@ -218,7 +217,7 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 		out->u.data.f_len = file->f_len;
 	}
 
-	printf("\n");
+	dprintf("\n");
 
 	return 1;
 }
