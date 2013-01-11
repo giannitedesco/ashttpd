@@ -13,34 +13,7 @@
 #define dprintf(x...) do {} while(0)
 #endif
 
-struct _webroot {
-	int r_fd;
-	const void *r_map;
-	size_t r_map_sz;
-
-	unsigned int r_num_edges;
-	unsigned int r_num_redirect;
-
-	const struct trie_dedge *r_trie;
-	const struct webroot_redirect *r_redir;
-	const struct webroot_file *r_file;
-	const uint8_t *r_strtab;
-};
-
-static uint32_t trie_edges_index(const struct trie_dedge *e)
-{
-	return (e->re_edges_hi << 16) | e->re_edges_idx;
-}
-
-static uint32_t trie_strtab_ofs(const struct trie_dedge *e)
-{
-	return (e->re_strtab_hi << 16) | e->re_strtab_ofs;
-}
-
-static int string_is_resident(const struct trie_dedge *e)
-{
-	return e->re_strtab_len < 4;
-}
+#include "webroot-common.h"
 
 static gidx_oid_t trie_query(struct _webroot *r,
 				const struct trie_dedge *re,
@@ -99,6 +72,7 @@ static gidx_oid_t trie_query(struct _webroot *r,
 			}
 			dprintf("RECURSE %d => %d\n", edges_idx,
 				re[i].re_num_edges);
+			assert(edges_idx < r->r_num_edges);
 			return trie_query(r, r->r_trie + edges_idx,
 					re[i].re_num_edges, &suff);
 		}
@@ -140,8 +114,10 @@ webroot_t webroot_open(const char *fn)
 		goto out;
 
 	r->r_fd = open(fn, O_RDONLY);
-	if ( r->r_fd < 0 )
+	if ( r->r_fd < 0 ) {
+		fprintf(stderr, "webroot: %s: %s\n", fn, os_err());
 		goto out_free;
+	}
 
 	sz = sizeof(hdr);
 	if ( !fd_read(r->r_fd, &hdr, &sz, &eof) || eof || sz != sizeof(hdr) ) {
@@ -163,6 +139,7 @@ webroot_t webroot_open(const char *fn)
 
 	r->r_num_edges = hdr.h_num_edges;
 	r->r_num_redirect = hdr.h_num_redirect;
+	r->r_num_oid = hdr.h_num_redirect + hdr.h_num_file;
 
 	ptr = r->r_map + sizeof(hdr);
 
@@ -213,6 +190,7 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 		printf("NOPE\n\n");
 		return 0;
 	}
+	assert(idx < r->r_num_oid);
 
 	if ( idx < r->r_num_redirect ) {
 		const struct webroot_redirect *redir;
@@ -222,9 +200,15 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 
 		out->u.moved.v_ptr = r->r_map + redir->r_off;
 		out->u.moved.v_len = redir->r_len;
+		printf("redirect %.*s -> %.*s\n",
+			(int)uri->v_len,
+			uri->v_ptr,
+			(int)redir->r_len,
+			(char *)r->r_map + redir->r_off);
 	}else{
 		const struct webroot_file *file;
 
+		printf("file %u - %u\n", idx, r->r_num_redirect);
 		file = r->r_file + (idx - r->r_num_redirect);
 		out->code = HTTP_FOUND;
 

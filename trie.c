@@ -15,7 +15,7 @@
 
 #include "trie.h"
 
-#define DEBUG_INCORE		0
+#define DEBUG_INCORE		1
 #define STRTAB_COMPRESS		1
 
 struct trie {
@@ -121,6 +121,8 @@ static int do_radix(struct trie *r, struct trie_edge *n,
 	while(v) {
 		struct trie_edge *e;
 
+		assert(v < end);
+
 		for(len = v->t_str.v_len - ofs, last = tmp = v;
 				tmp && len < 0x100;
 				last = tmp, tmp = next_string(tmp, end)) {
@@ -157,18 +159,18 @@ static int do_radix(struct trie *r, struct trie_edge *n,
 			//mesg(M_DEBUG, "  - plain recurse");
 		}
 
-		//mesg(M_DEBUG, "prefix: %.*s",
+		//printf("prefix: %.*s\n",
 		//		(int)(ofs + len),
 		//		v->t_str.v_ptr);
 		for(tmp = v; tmp; tmp = next_string(tmp, end)) {
-			//mesg(M_DEBUG, "  shared by: %.*s",
+			//printf("  shared by: %.*s\n",
 			//		(int)tmp->t_str.v_len,
 			//		tmp->t_str.v_ptr);
 			if ( tmp == last )
 				break;
 		}
 
-		do_radix(r, e, v, last, ofs + len, depth + 1);
+		do_radix(r, e, v, last + 1, ofs + len, depth + 1);
 		v = next_string(last, end);
 	}
 

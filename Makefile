@@ -76,8 +76,14 @@ MKROOT_OBJ := hgang.o \
 		os.o \
 		mkroot.o
 
-ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN) $(MKROOT_BIN)
-ALL_OBJ := $(HTTPD_OBJ) $(HTTPRAPE_OBJ) $(MKROOT_OBJ)
+FSCK_BIN := fsckroot
+FSCK_LIBS :=
+FSCK_OBJ = fsck.o \
+	webroot.o \
+	os.o
+
+ALL_BIN := $(HTTPD_BIN) $(HTTPRAPE_BIN) $(MKROOT_BIN) $(FSCK_BIN)
+ALL_OBJ := $(HTTPD_OBJ) $(HTTPRAPE_OBJ) $(MKROOT_OBJ) $(FSCK_OBJ)
 ALL_DEP := $(patsubst %.o, .%.d, $(ALL_OBJ))
 ALL_TARGETS := $(ALL_BIN)
 
@@ -116,6 +122,10 @@ $(HTTPRAPE_BIN): $(HTTPRAPE_OBJ) $(HTTPRAPE_SLIBS)
 $(MKROOT_BIN): $(MKROOT_OBJ)
 	@echo " [LINK] $@"
 	@$(CC) $(CFLAGS) -o $@ $(MKROOT_OBJ) $(MKROOT_LIBS)
+
+$(FSCK_BIN): $(FSCK_OBJ)
+	@echo " [LINK] $@"
+	@$(CC) $(CFLAGS) -o $@ $(FSCK_OBJ) $(FSCK_LIBS)
 
 clean:
 	rm -f $(ALL_TARGETS) $(ALL_OBJ) $(ALL_DEP)
