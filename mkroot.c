@@ -73,6 +73,7 @@ struct webroot {
 	strpool_t r_str_mem;
 	const char *r_base;
 	trie_t r_trie;
+	struct trie_entry *r_trie_ent;
 	magic_t r_magic;
 	uint64_t r_files_sz;
 	unsigned int r_num_uri;
@@ -166,6 +167,7 @@ static void webroot_free(struct webroot *r)
 		hgang_free(r->r_mime_mem);
 		strpool_free(r->r_str_mem);
 		magic_close(r->r_magic);
+		free(r->r_trie_ent);
 		trie_free(r->r_trie);
 		free(r);
 	}
@@ -175,7 +177,24 @@ static int ucmp(const void *A, const void *B)
 {
 	const struct uri * const *a = A;
 	const struct uri * const *b = B;
+#if 0
+	size_t min, i;
+	int ret;
+
+	min = (strlen((*a)->u_uri) < strlen((*b)->u_uri)) ? strlen((*a)->u_uri) : strlen((*b)->u_uri);
+	ret = strlen((*a)->u_uri) - strlen((*b)->u_uri);
+
+	for(i = 0; i < min; i++) {
+		int ret;
+
+		ret = (*a)->u_uri[i] - (*b)->u_uri[i];
+		if ( ret )
+			return ret;
+	}
+	return ret;
+#else
 	return strcmp((*a)->u_uri, (*b)->u_uri);
+#endif
 }
 
 static int sort_uris(struct webroot *r)
@@ -246,10 +265,10 @@ static int webroot_prep(struct webroot *r)
 		ent[i].t_str.v_ptr = (const uint8_t *)u->u_uri;
 		ent[i].t_str.v_len = strlen(u->u_uri);
 		ent[i].t_oid = u->u_obj->o_oid;
-		printf("%.*s (%d)\n",
-			(int)ent[i].t_str.v_len,
-			ent[i].t_str.v_ptr,
-			ent[i].t_oid);
+//		printf(" %d: %.*s (%d)\n", i,
+//			(int)ent[i].t_str.v_len,
+//			ent[i].t_str.v_ptr,
+//			ent[i].t_oid);
 		i++;
 	}
 
@@ -260,6 +279,7 @@ static int webroot_prep(struct webroot *r)
 	printf("%s: index: trie=%"PRId64" bytes, strtab=%"PRId64" bytes\n",
 		cmd, trie_trie_size(t), trie_strtab_size(t));
 	r->r_trie = t;
+	r->r_trie_ent = ent;
 
 	/* Layout mime and redirect string tables */
 	off = sizeof(struct webroot_hdr) +
@@ -288,7 +308,11 @@ static int webroot_prep(struct webroot *r)
 		off += obj->o_u.file.size;
 		r->r_files_sz += obj->o_u.file.size;
 	}
+
+	/* success */
 	ret = 1;
+	goto out;
+
 out_free:
 	free(ent);
 out:
