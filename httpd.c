@@ -377,12 +377,13 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	struct webroot_name n;
 	struct ro_vec search_uri = r->uri;
 	struct tm tm;
+	char etag[41];
 	char mtime[128];
 	time_t mt;
 	struct nads nads;
 	uint8_t *ptr;
 	size_t sz;
-	int len;
+	int len, hit = 0;
 
 	if ( search_uri.v_len > 1 &&
 		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
@@ -420,6 +421,36 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
+	snprintf(etag, sizeof(etag), "%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
+			"%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x",
+			n.u.data.f_etag[0], n.u.data.f_etag[1],
+			n.u.data.f_etag[2], n.u.data.f_etag[3],
+			n.u.data.f_etag[4], n.u.data.f_etag[5],
+			n.u.data.f_etag[6], n.u.data.f_etag[7],
+			n.u.data.f_etag[8], n.u.data.f_etag[9],
+			n.u.data.f_etag[10], n.u.data.f_etag[11],
+			n.u.data.f_etag[12], n.u.data.f_etag[13],
+			n.u.data.f_etag[14], n.u.data.f_etag[15],
+			n.u.data.f_etag[16], n.u.data.f_etag[17],
+			n.u.data.f_etag[18], n.u.data.f_etag[19]);
+
+	if ( r->etag.v_len == 40 ) {
+		dprintf("conditional query: %.*s vs %s: ",
+			(int)r->etag.v_len, r->etag.v_ptr, etag);
+		if ( !vstrcmp(&r->etag, etag) ) {
+			hit = 1;
+			dprintf("hit\n");
+		}else{
+			dprintf("miss\n");
+		}
+	}
+
+	if ( hit ) {
+		head = 1;
+		n.code = HTTP_NOT_MODIFIED;
+	}else{
+	}
+
 	if ( h->h_data_len && !head ) {
 		if ( !_io_prep(t, h) ) {
 			/* FIXME: insufficient resources http code */
@@ -437,8 +468,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			"Content-Type: %.*s\r\n"
 			"Content-Length: %zu\r\n"
 			"Connection: %s\r\n"
-			"ETag: %.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
-				"%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x\r\n"
+			"ETag: %s\r\n"
 			"Last-Modified: %s\r\n"
 			"Server: ashttpd, experimental l33tness\r\n"
 			"\r\n",
@@ -448,16 +478,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			n.mime_type.v_ptr,
 			h->h_data_len,
 			(h->h_conn_close) ? "Close" : "Keep-Alive",
-			n.u.data.f_etag[0], n.u.data.f_etag[1],
-			n.u.data.f_etag[2], n.u.data.f_etag[3],
-			n.u.data.f_etag[4], n.u.data.f_etag[5],
-			n.u.data.f_etag[6], n.u.data.f_etag[7],
-			n.u.data.f_etag[8], n.u.data.f_etag[9],
-			n.u.data.f_etag[10], n.u.data.f_etag[11],
-			n.u.data.f_etag[12], n.u.data.f_etag[13],
-			n.u.data.f_etag[14], n.u.data.f_etag[15],
-			n.u.data.f_etag[16], n.u.data.f_etag[17],
-			n.u.data.f_etag[18], n.u.data.f_etag[19],
+			etag,
 			mtime);
 	if ( len < 0 )
 		len = 0;
@@ -484,7 +505,7 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	ptr = buf_read(h->h_req, &sz);
 	memset(&r, 0, sizeof(r));
 	hlen = http_req(&r, ptr, sz);
-	printf("%.*s\n", (int)sz, ptr);
+	//printf("%.*s\n", (int)sz, ptr);
 	if ( 0 == hlen ) {
 		/* FIXME: error 400 */
 		http_kill(t, h);

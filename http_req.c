@@ -13,7 +13,6 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 		{"method", htype_string, {.vec = &r->method}},
 		{"uri", htype_string, {.vec = &r->uri}},
 		{"protocol", htype_string, {.vec = &pv}},
-		{"Host", htype_string , {.vec = &r->host}},
 		{"Connection", htype_string, { .vec = &connection}},
 #if 0
 		{"Content-Type", htype_string,
@@ -23,6 +22,10 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 #if 0
 		{"Content-Encoding", htype_string,
 					{.vec = &r->content_enc}},
+#endif
+		{"Host", htype_string , {.vec = &r->host}},
+		{"If-None-Match", htype_string, {.vec = &r->etag}},
+#if 0
 		{"Transfer-Encoding", htype_string,
 					{.vec = &r->transfer_enc}},
 #endif
