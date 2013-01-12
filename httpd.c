@@ -339,7 +339,7 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 	ptr = buf_write(h->h_res, &sz);
 	assert(NULL != ptr && sz >= strlen(resp301));
 
-	memcpy(ptr, resp400, strlen(resp301));
+	memcpy(ptr, resp301, strlen(resp301));
 	n = snprintf((char *)ptr, sz, resp301,
 			(int)host.v_len, host.v_ptr,
 			(int)loc->v_len, loc->v_ptr);
