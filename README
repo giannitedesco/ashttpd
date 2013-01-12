@@ -11,19 +11,22 @@ a noticable performance impact. In the future this will also allow for atomic
 replacements of entire webroots.
 
 1. BUILDING
-For now the webroot index is maintained as a database in which the URI's are
-compiled in to the httpd ELF object as a C data structure and the actual data
-is stored in a file called 'webroot.objdb' which is basically just all of the
-files in the webroot concatenated together.
+This might need a few tweaks to build on a non-linux platform but it should
+be doable. All the platform specific stuff has POSIX fallbacks but they've not
+been tested.
 
- $ echo -n /path/to/webroot > ROOT
- $ (cd `cat ROOT`; find . | cut -c 2- | sed "s/^$/\//) > MANIFEST
- $ make
-
-This will build the webroot database and the httpd binary.
+The main linux specific bits are just performance enhancements: accept4(),
+fallocate(), epoll, (no kqueue module for example, but it can fallback to
+poll or be written by a suitably motivated individual).
 
 2. RUNNING
-When running httpd the webroot.objdb must be in the working directory.
+To build a webroot run mkroot, for example:
+
+ $ ./mkroot /var/www www.webroot
+
+Then the server is run with:
+ $ ./httpd www.webroot
+
 The httpd binary takes one (optional) commandline argument which selects the
 I/O model to be used:
 
@@ -32,3 +35,7 @@ I/O model to be used:
   dio - O_DIRECT kernel AIO
   async - kernel AIO, will only be really async if kernel is patched
   async-sendfile - kernel AIO sendfile, requires patch to kernel and libaio
+ 
+For example:
+
+ $ ./httpd www.webroot sync
