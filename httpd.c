@@ -462,6 +462,7 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	ptr = buf_read(h->h_req, &sz);
 	memset(&r, 0, sizeof(r));
 	hlen = http_req(&r, ptr, sz);
+	printf("%.*s\n", (int)sz, ptr);
 	if ( 0 == hlen ) {
 		/* FIXME: error 400 */
 		http_kill(t, h);

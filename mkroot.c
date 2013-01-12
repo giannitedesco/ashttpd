@@ -23,6 +23,7 @@
 #include <vec.h>
 #include <webroot-format.h>
 #include "trie.h"
+#include "sha1.h"
 
 #define WRITE_FILES	1
 #define BUFFER_SIZE	(1U << 20U)

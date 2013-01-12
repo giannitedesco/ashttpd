@@ -72,6 +72,7 @@ MKROOT_LIBS := -lmagic
 MKROOT_OBJ := hgang.o \
 		strpool.o \
 		fobuf.o \
+		sha1.o \
 		trie.o \
 		os.o \
 		mkroot.o
