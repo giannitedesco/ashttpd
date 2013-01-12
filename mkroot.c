@@ -26,6 +26,7 @@
 
 #define WRITE_FILES	1
 #define BUFFER_SIZE	(1U << 20U)
+#define SYMBUF		(16U << 10U) /* readlink buffer */
 
 #if 0
 #define dprintf printf
@@ -666,7 +667,7 @@ static struct object *obj_file(struct webroot *r,
 	return obj;
 }
 
-static int scan_item(struct webroot *r, const char *dir);
+static int scan_item(struct webroot *r, const char *dir, const char *u);
 
 static int scan_dir(struct webroot *r, const char *dir, const char *path)
 {
@@ -689,7 +690,7 @@ static int scan_dir(struct webroot *r, const char *dir, const char *path)
 			continue;
 
 		uri = path_splice(dir, e->d_name);
-		ret = scan_item(r, uri);
+		ret = scan_item(r, dir, uri);
 		free(uri);
 		if ( !ret )
 			goto out;
@@ -757,7 +758,7 @@ static int add_index(struct webroot *r, const char *u)
 	return 1;
 }
 
-static int scan_item(struct webroot *r, const char *u)
+static int scan_item(struct webroot *r, const char *dir, const char *u)
 {
 	struct object *obj = NULL;
 	struct stat st;
@@ -803,9 +804,26 @@ static int scan_item(struct webroot *r, const char *u)
 		if ( NULL == obj )
 			goto out_free;
 	}else if ( S_ISLNK(st.st_mode) ) {
-		/* TODO: Add redirect */
-		ret = 1;
-		goto out_free;
+		char *lpath;
+		char buf[SYMBUF];
+		ssize_t ret;
+
+		ret = readlink(path, buf, sizeof(buf));
+		if ( ret < 0 ) {
+			fprintf(stderr, "%s: %s: readlink: %s\n",
+				cmd, path, os_err());
+			goto out;
+		}
+
+		lpath = path_splice(dir, buf);
+		if ( NULL == lpath )
+			goto out_free;
+
+		dprintf("symlink %s -> %s\n", u, lpath);
+		obj = obj_redirect(r, lpath);
+		free(lpath);
+		if ( NULL == obj )
+			goto out_free;
 	}else {
 		printf("%s: unhandled type: %s\n", cmd, path);
 		ret = 1;
@@ -836,7 +854,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 	}
 
 	printf("%s: scanning %s\n", cmd, dir);
-	if ( !scan_item(r, "") )
+	if ( !scan_item(r, "", "") )
 		goto out_free;
 
 	if ( !webroot_prep(r) )
