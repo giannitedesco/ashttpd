@@ -437,7 +437,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			"Content-Type: %.*s\r\n"
 			"Content-Length: %zu\r\n"
 			"Connection: %s\r\n"
-			"Etag: %.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
+			"ETag: %.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
 				"%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x\r\n"
 			"Last-Modified: %s\r\n"
 			"Server: ashttpd, experimental l33tness\r\n"
