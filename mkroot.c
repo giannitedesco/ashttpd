@@ -64,6 +64,7 @@ struct object {
 		struct {
 			char *uri;
 			uint32_t strtab_off;
+			int code;
 		} redirect;
 	}o_u;
 };
@@ -309,8 +310,10 @@ static int webroot_prep(struct webroot *r)
 	r->r_redirtab_sz = 0;
 	list_for_each_entry(obj, &r->r_redirect, o_list) {
 		obj->o_u.redirect.strtab_off = off;
-		off += strlen(obj->o_u.redirect.uri);
-		r->r_redirtab_sz += strlen(obj->o_u.redirect.uri);
+		if ( obj->o_u.redirect.uri ) {
+			off += strlen(obj->o_u.redirect.uri);
+			r->r_redirtab_sz += strlen(obj->o_u.redirect.uri);
+		}
 	}
 
 	/* Calculate files size */
@@ -396,6 +399,8 @@ static int write_redirtab(struct webroot *r, fobuf_t out)
 	struct object *obj;
 
 	list_for_each_entry(obj, &r->r_redirect, o_list) {
+		if ( NULL == obj->o_u.redirect.uri )
+			continue;
 		if ( !fobuf_write(out, obj->o_u.redirect.uri,
 					strlen(obj->o_u.redirect.uri)) )
 			return 0;
@@ -435,8 +440,13 @@ static int write_redirect_objs(struct webroot *r, fobuf_t out)
 	struct object *obj;
 
 	list_for_each_entry(obj, &r->r_redirect, o_list) {
-		wr.r_off = obj->o_u.redirect.strtab_off;
-		wr.r_len = strlen(obj->o_u.redirect.uri);
+		if ( obj->o_u.redirect.uri ) {
+			wr.r_off = obj->o_u.redirect.strtab_off;
+			wr.r_len = strlen(obj->o_u.redirect.uri);
+		}else{
+			wr.r_off = WEBROOT_INVALID_REDIRECT;
+			wr.r_len = obj->o_u.redirect.code;
+		}
 		if ( !fobuf_write(out, &wr, sizeof(wr)) )
 			return 0;
 	}
@@ -587,6 +597,22 @@ static struct object *obj_redirect(struct webroot *r, const char *path)
 	return obj;
 }
 
+static struct object *obj_code(struct webroot *r, int code)
+{
+	struct object *obj;
+
+	obj = hgang_alloc0(r->r_obj_mem);
+	if ( NULL == obj )
+		return NULL;
+
+	obj->o_type = OBJ_TYPE_REDIRECT;
+	obj->o_u.redirect.code = code;
+	list_add_tail(&obj->o_list, &r->r_redirect);
+	r->r_num_redirect++;
+
+	return obj;
+}
+
 /* TODO: detect hardlinks */
 static struct object *obj_file(struct webroot *r,
 				const char *path,
@@ -702,7 +728,13 @@ static int add_index(struct webroot *r, const char *u)
 		}
 	}
 
-	if ( obj && NULL == webroot_link(r, u, obj) )
+	if ( NULL == obj ) {
+		obj = obj_code(r, 403 /* forbidden */);
+	}
+	if ( NULL == obj )
+		return 0;
+
+	if ( NULL == webroot_link(r, u, obj) )
 		return 0;
 
 	return 1;

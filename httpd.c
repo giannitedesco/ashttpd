@@ -51,25 +51,32 @@ static webroot_t webroot;
 static const char * const resp400 =
 	"HTTP/1.1 400 Bad Request\r\n"
 	"Content-Type: text/html\r\n"
-	"Content-Length: 77\r\n"
+	"Content-Length: 82\r\n"
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
-	"<body><h1>Bad Request</body></html>";
+	"<body><h1>Bad Request</h1></body></html>";
 static const char * const resp301 =
 	"HTTP/1.1 301 Moved Permanently\r\n"
 	"Content-Type: text/html\r\n"
-	"Content-Length: 82\r\n"
+	"Content-Length: 87\r\n"
 	"Location: http://%.*s%.*s\r\n"
 	"\r\n"
 	"<html><head><title>Object Moved</title></head>"
-	"<body><h1>Object Moved</body></html>";
+	"<body><h1>Object Moved</h1></body></html>";
+static const char * const resp403 =
+	"HTTP/1.1 403 Forbidden\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 84\r\n"
+	"\r\n"
+	"<html><head><title>Fobidden</title></head>"
+	"<body><h1>Access denied</h1></body></html>";
 static const char * const resp404 =
 	"HTTP/1.1 404 Object Not Found\r\n"
 	"Content-Type: text/html\r\n"
-	"Content-Length: 78\r\n"
+	"Content-Length: 83\r\n"
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
-	"<body><h1>y u no find?</body></html>";
+	"<body><h1>y u no find?</h1></body></html>";
 
 
 #define _io_init	(*fio_current->init)
@@ -293,6 +300,21 @@ static void http_write(struct iothread *t, struct nbio *n)
 }
 
 /* FIXME: persistent connection handling */
+static int response_403(struct iothread *t, struct _http_conn *h)
+{
+	uint8_t *ptr;
+	size_t sz;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp403));
+
+	memcpy(ptr, resp403, strlen(resp403));
+	buf_done_write(h->h_res, strlen(resp403));
+	h->h_data_len = 0;
+	return 1;
+}
+
+/* FIXME: persistent connection handling */
 static int response_404(struct iothread *t, struct _http_conn *h)
 {
 	uint8_t *ptr;
@@ -385,6 +407,8 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		switch(n.code) {
 		case HTTP_MOVED_PERMANENTLY:
 			return response_301(t, h, &r->host, &n.u.moved);
+		case HTTP_FORBIDDEN:
+			return response_403(t, h);
 		case HTTP_FOUND:
 			h->h_data_off = n.u.data.f_ofs;
 			h->h_data_len = n.u.data.f_len;

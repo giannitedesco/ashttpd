@@ -18,6 +18,7 @@ typedef struct _webroot *webroot_t;
 
 #define HTTP_FOUND			200
 #define HTTP_MOVED_PERMANENTLY		301
+#define HTTP_FORBIDDEN			403
 struct webroot_name {
 	struct ro_vec mime_type;
 	union {

@@ -195,15 +195,24 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 		const struct webroot_redirect *redir;
 
 		redir = r->r_redir + idx;
-		out->code = HTTP_MOVED_PERMANENTLY;
 
-		out->u.moved.v_ptr = r->r_map + redir->r_off;
-		out->u.moved.v_len = redir->r_len;
-		dprintf("redirect %.*s -> %.*s\n",
-			(int)uri->v_len,
-			uri->v_ptr,
-			(int)redir->r_len,
-			(char *)r->r_map + redir->r_off);
+		if ( redir->r_off == WEBROOT_INVALID_REDIRECT ) {
+			out->code = redir->r_len;
+			out->u.moved.v_len = redir->r_len;
+			dprintf("redirect %.*s -> code %u\n",
+				(int)uri->v_len,
+				uri->v_ptr,
+				out->code);
+		}else{
+			out->code = HTTP_MOVED_PERMANENTLY;
+			out->u.moved.v_ptr = r->r_map + redir->r_off;
+			out->u.moved.v_len = redir->r_len;
+			dprintf("redirect %.*s -> %.*s\n",
+				(int)uri->v_len,
+				uri->v_ptr,
+				(int)redir->r_len,
+				(char *)r->r_map + redir->r_off);
+		}
 	}else{
 		const struct webroot_file *file;
 
