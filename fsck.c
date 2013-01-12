@@ -97,8 +97,8 @@ static void print_obj(struct _webroot *r, const struct trie_dedge *re,
 
 		printf(" - mime type: %.*s\n",
 			(int)file->f_type_len,
-			r->r_map + file->f_type);
-		printf(" - off/len = 0x%llx 0x%llx\n",
+			(char *)r->r_map + file->f_type);
+		printf(" - off/len = 0x%"PRIx64" 0x%"PRIx64"\n",
 			file->f_off, file->f_len);
 	}
 }

@@ -27,6 +27,18 @@
 #define WRITE_FILES	1
 #define BUFFER_SIZE	(1U << 20U)
 
+#if 0
+#define dprintf printf
+#else
+#define dprintf(x...) do {} while(0)
+#endif
+
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof(x[0]))
+static const char * const index_pages[] = {
+	"index.html",
+	"default.html",
+};
+
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
 
@@ -647,9 +659,58 @@ out:
 	return ret;
 }
 
+static int add_index(struct webroot *r, const char *u)
+{
+	unsigned int i;
+	struct object *obj = NULL;
+
+	dprintf("indexing %s\n", u);
+	for(i = 0; i < ARRAY_SIZE(index_pages); i++) {
+		struct stat st;
+		char *uri, *ipath;
+
+		uri = path_splice(u, index_pages[i]);
+		if ( NULL == uri )
+			return 0;
+
+		ipath = webroot_lookup(r, uri);
+		free(uri);
+		if ( NULL == ipath )
+			return 0;
+
+		if ( stat(ipath, &st) ) {
+			if ( errno == ENOENT ) {
+				free(ipath);
+				continue;
+			}
+			fprintf(stderr, "%s: %s: stat: %s\n",
+				cmd, ipath, os_err());
+			free(ipath);
+			return 0;
+		}
+
+		if ( S_ISREG(st.st_mode) ) {
+			dprintf("index: %s -> %s\n", u, ipath);
+			obj = obj_file(r, ipath, st.st_size);
+			free(ipath);
+			if ( NULL == obj )
+				return 0;
+			break;
+		}else{
+			free(ipath);
+			continue;
+		}
+	}
+
+	if ( obj && NULL == webroot_link(r, u, obj) )
+		return 0;
+
+	return 1;
+}
+
 static int scan_item(struct webroot *r, const char *u)
 {
-	struct object *obj;
+	struct object *obj = NULL;
 	struct stat st;
 	char *path;
 	int ret = 0;
@@ -670,16 +731,23 @@ static int scan_item(struct webroot *r, const char *u)
 		if ( NULL == dpath )
 			goto out_free;
 
-		printf("link %s -> %s\n", u, dpath);
-		obj = obj_redirect(r, dpath);
-		free(dpath);
-		if ( NULL == obj )
+		if ( !add_index(r, dpath) ) {
+			free(dpath);
 			goto out_free;
+		}
+
+		if ( strlen(u) ) {
+			//dprintf("link '%s' -> '%s'\n", u, dpath);
+			obj = obj_redirect(r, dpath);
+
+			free(dpath);
+			if ( NULL == obj )
+				goto out_free;
+		}
 
 		if ( !scan_dir(r, u, path) )
 			goto out_free;
 
-		/* TODO: add index page */
 	}else if ( S_ISREG(st.st_mode) ) {
 		obj = obj_file(r, path, st.st_size);
 		if ( NULL == obj )
@@ -694,7 +762,7 @@ static int scan_item(struct webroot *r, const char *u)
 		goto out_free;
 	}
 
-	if ( NULL == webroot_link(r, u, obj) )
+	if ( obj && NULL == webroot_link(r, u, obj) )
 		goto out_free;
 
 	ret = 1;
