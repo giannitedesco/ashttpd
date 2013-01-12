@@ -10,12 +10,10 @@ deadconn
 deadconn.c
 MANIFEST
 ROOT
-webroot-manifest*
 mkpkg
 pkg/
 pkg.tar.gz
 manifest.pkg
-webroot.h
 webroot.objdb
 *.dot
 *.ps
