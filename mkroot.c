@@ -64,6 +64,8 @@ struct object {
 			uint64_t off;
 			dev_t dev;
 			ino_t ino;
+			time_t mtime;
+			uint8_t digest[WEBROOT_DIGEST_LEN];
 		} file;
 		struct {
 			char *uri;
@@ -338,9 +340,19 @@ out:
 	return ret;
 }
 
+/* the assumption here being that the webroot digest field is the same size
+ * as a SHA1 hash.
+*/
+static void etag(uint8_t digest[WEBROOT_DIGEST_LEN], uint8_t sha[20])
+{
+	memcpy(digest, sha, 20);
+}
+
 static int write_file(struct object *f, fobuf_t out)
 {
 	uint8_t buf[BUFFER_SIZE];
+	blk_SHA_CTX ctx;
+	uint8_t sha[20];
 	ssize_t ret;
 	int rc = 0;
 	int fd;
@@ -352,6 +364,7 @@ static int write_file(struct object *f, fobuf_t out)
 		goto out;
 	}
 
+	blk_SHA1_Init(&ctx);
 again:
 	ret = read(fd, buf, sizeof(buf));
 	if ( ret < 0 ) {
@@ -366,9 +379,13 @@ again:
 		goto out_close;
 	}
 
+	blk_SHA1_Update(&ctx, buf, ret);
+
 	if ( ret )
 		goto again;
 
+	blk_SHA1_Final(sha, &ctx);
+	etag(f->o_u.file.digest, sha);
 	rc = 1;
 out_close:
 	fd_close(fd);
@@ -458,16 +475,23 @@ static int write_redirect_objs(struct webroot *r, fobuf_t out)
 	return 1;
 }
 
+static uint32_t modified(time_t mtime)
+{
+	return mtime;
+}
+
 static int write_file_objs(struct webroot *r, fobuf_t out)
 {
 	struct webroot_file wf;
 	struct object *obj;
 
+	memset(wf.f_digest, 0, sizeof(wf.f_digest));
 	list_for_each_entry(obj, &r->r_file, o_list) {
 		wf.f_off = obj->o_u.file.off;
 		wf.f_len = obj->o_u.file.size;
 		wf.f_type = obj->o_u.file.type->m_strtab_off;
 		wf.f_type_len = strlen(obj->o_u.file.type->m_type);
+		wf.f_modified = modified(obj->o_u.file.mtime);
 		if ( !fobuf_write(out, &wf, sizeof(wf)) )
 			return 0;
 	}
@@ -621,6 +645,7 @@ static struct object *obj_file(struct webroot *r,
 				const char *path,
 				dev_t dev,
 				ino_t ino,
+				time_t mtime,
 				uint64_t size)
 {
 	struct mime_type *m;
@@ -661,6 +686,7 @@ static struct object *obj_file(struct webroot *r,
 	obj->o_u.file.type = m;
 	obj->o_u.file.dev = dev;
 	obj->o_u.file.ino = ino;
+	obj->o_u.file.mtime = mtime;
 
 	list_add_tail(&obj->o_list, &r->r_file);
 	r->r_num_file++;
@@ -735,8 +761,8 @@ static int add_index(struct webroot *r, const char *u)
 
 		if ( S_ISREG(st.st_mode) ) {
 			dprintf("index: %s -> %s\n", u, ipath);
-			obj = obj_file(r, ipath, st.st_dev,
-					st.st_ino, st.st_size);
+			obj = obj_file(r, ipath, st.st_dev, st.st_ino,
+					st.st_mtime, st.st_size);
 			free(ipath);
 			if ( NULL == obj )
 				return 0;
@@ -800,8 +826,8 @@ static int scan_item(struct webroot *r, const char *dir, const char *u)
 			goto out_free;
 
 	}else if ( S_ISREG(st.st_mode) ) {
-		obj = obj_file(r, path, st.st_dev,
-				st.st_ino, st.st_size);
+		obj = obj_file(r, path, st.st_dev, st.st_ino,
+				st.st_mtime, st.st_size);
 		if ( NULL == obj )
 			goto out_free;
 	}else if ( S_ISLNK(st.st_mode) ) {

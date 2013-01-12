@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <time.h>
 
 #include <ashttpd.h>
 #include <nbio-listener.h>
@@ -375,6 +376,9 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 {
 	struct webroot_name n;
 	struct ro_vec search_uri = r->uri;
+	struct tm tm;
+	char mtime[128];
+	time_t mt;
 	struct nads nads;
 	uint8_t *ptr;
 	size_t sz;
@@ -423,12 +427,21 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
+	mt = n.u.data.f_mtime;
+	gmtime_r(&mt, &tm);
+	strftime(mtime, sizeof(mtime), "%a, %d %b %Y %H:%M:%S GMT", &tm);
+
 	ptr = buf_write(h->h_res, &sz);
 	len = snprintf((char *)ptr, sz,
 			"HTTP/1.1 %u %s\r\n"
 			"Content-Type: %.*s\r\n"
 			"Content-Length: %zu\r\n"
 			"Connection: %s\r\n"
+#if 0
+			"Etag: %.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
+				"%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x\r\n"
+#endif
+			"Last-Modified: %s\r\n"
 			"Server: ashttpd, experimental l33tness\r\n"
 			"\r\n",
 			n.code,
@@ -436,7 +449,20 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			(int)n.mime_type.v_len,
 			n.mime_type.v_ptr,
 			h->h_data_len,
-			(h->h_conn_close) ? "Close" : "Keep-Alive");
+			(h->h_conn_close) ? "Close" : "Keep-Alive",
+#if 0
+			n.u.data.f_etag[0], n.u.data.f_etag[1],
+			n.u.data.f_etag[2], n.u.data.f_etag[3],
+			n.u.data.f_etag[4], n.u.data.f_etag[5],
+			n.u.data.f_etag[6], n.u.data.f_etag[7],
+			n.u.data.f_etag[8], n.u.data.f_etag[9],
+			n.u.data.f_etag[10], n.u.data.f_etag[11],
+			n.u.data.f_etag[12], n.u.data.f_etag[13],
+			n.u.data.f_etag[14], n.u.data.f_etag[15],
+			n.u.data.f_etag[16], n.u.data.f_etag[17],
+			n.u.data.f_etag[18], n.u.data.f_etag[19],
+#endif
+			mtime);
 	if ( len < 0 )
 		len = 0;
 	if ( (size_t)len == sz ) {

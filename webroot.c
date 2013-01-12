@@ -224,6 +224,11 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 		out->mime_type.v_len = file->f_type_len;
 		out->u.data.f_ofs = file->f_off;
 		out->u.data.f_len = file->f_len;
+		out->u.data.f_mtime = file->f_modified;
+		/* XXX: The assumption being the size of the etag is
+		 * smaller than or equal to the size of the digest
+		*/
+		memcpy(out->u.data.f_etag, file->f_digest, ETAG_SZ);
 	}
 
 	dprintf("\n");

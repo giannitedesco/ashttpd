@@ -16,6 +16,8 @@
 
 typedef struct _webroot *webroot_t;
 
+#define ETAG_SZ				20
+
 #define HTTP_FOUND			200
 #define HTTP_MOVED_PERMANENTLY		301
 #define HTTP_FORBIDDEN			403
@@ -25,6 +27,8 @@ struct webroot_name {
 		struct {
 			off_t f_ofs;
 			size_t f_len;
+			uint32_t f_mtime;
+			uint8_t f_etag[ETAG_SZ];
 		}data;
 		struct ro_vec moved;
 	}u;
