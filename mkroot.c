@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <unistd.h>
 #include <errno.h>
 #include <dirent.h>
@@ -485,18 +486,39 @@ static int write_file_objs(struct webroot *r, fobuf_t out)
 	struct webroot_file wf;
 	struct object *obj;
 
-	memset(wf.f_digest, 0, sizeof(wf.f_digest));
 	list_for_each_entry(obj, &r->r_file, o_list) {
 		wf.f_off = obj->o_u.file.off;
 		wf.f_len = obj->o_u.file.size;
 		wf.f_type = obj->o_u.file.type->m_strtab_off;
 		wf.f_type_len = strlen(obj->o_u.file.type->m_type);
 		wf.f_modified = modified(obj->o_u.file.mtime);
+		memcpy(wf.f_digest, obj->o_u.file.digest, WEBROOT_DIGEST_LEN);
 		if ( !fobuf_write(out, &wf, sizeof(wf)) )
 			return 0;
 	}
 
 	return 1;
+}
+
+static int write_etags(struct webroot *r, fobuf_t out)
+{
+	int fd;
+	off_t off;
+
+	/* flush internal buffers, no fsync */
+	if ( !fobuf_flush(out) )
+		return 0;
+
+	/* seek back to start of file objects */
+	fd = fobuf_fd(out);
+	off = sizeof(struct webroot_hdr) +
+		trie_trie_size(r->r_trie) +
+		sizeof(struct webroot_redirect) * r->r_num_redirect;
+	if ( lseek(fd, off, SEEK_SET) < 0 ) {
+		return 0;
+	}
+
+	return write_file_objs(r, out);
 }
 
 static int webroot_write(struct webroot *r, fobuf_t out)
@@ -522,6 +544,8 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 		return 0;
 #endif
 
+	if ( !write_etags(r, out) )
+		return 0;
 	return 1;
 }
 
