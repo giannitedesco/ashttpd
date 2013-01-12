@@ -24,7 +24,7 @@
 */
 
 #define WEBROOT_MAGIC		((0x37 << 24) | (0x13 << 16) | 'W' << 8 | 'w')
-#define WEBROOT_CURRENT_VER	1
+#define WEBROOT_CURRENT_VER	2
 struct webroot_hdr {
 	uint32_t	h_num_edges;
 	uint32_t	h_num_redirect;
@@ -35,11 +35,14 @@ struct webroot_hdr {
 	uint32_t	h_files_begin;
 } _packed;
 
+#define WEBROOT_DIGEST_LEN	20
 struct webroot_file {
 	uint64_t f_off;
 	uint64_t f_len;
 	uint32_t f_type;
 	uint32_t f_type_len;
+	uint32_t f_modified;
+	uint8_t f_digest[WEBROOT_DIGEST_LEN];
 } _packed;
 
 #define WEBROOT_INVALID_REDIRECT 0xffffffffU
