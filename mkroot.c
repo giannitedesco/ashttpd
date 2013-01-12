@@ -60,6 +60,8 @@ struct object {
 			uint64_t size;
 			char *path;
 			uint64_t off;
+			dev_t dev;
+			ino_t ino;
 		} file;
 		struct {
 			char *uri;
@@ -613,14 +615,26 @@ static struct object *obj_code(struct webroot *r, int code)
 	return obj;
 }
 
-/* TODO: detect hardlinks */
 static struct object *obj_file(struct webroot *r,
 				const char *path,
+				dev_t dev,
+				ino_t ino,
 				uint64_t size)
 {
 	struct mime_type *m;
 	struct object *obj;
 	const char *mime;
+
+	/* TODO: use a hash table, benchmarked at causing 200ms
+	 * slowdown for 5,000 files. Dwarfed by I/O.
+	 */
+	list_for_each_entry(obj, &r->r_file, o_list) {
+		if ( dev == obj->o_u.file.dev &&
+			ino == obj->o_u.file.ino ) {
+			printf("hit %s\n", path);
+			return obj;
+		}
+	}
 
 	obj = hgang_alloc0(r->r_obj_mem);
 	if ( NULL == obj )
@@ -643,6 +657,8 @@ static struct object *obj_file(struct webroot *r,
 
 	obj->o_u.file.size = size;
 	obj->o_u.file.type = m;
+	obj->o_u.file.dev = dev;
+	obj->o_u.file.ino = ino;
 
 	list_add_tail(&obj->o_list, &r->r_file);
 	r->r_num_file++;
@@ -717,7 +733,8 @@ static int add_index(struct webroot *r, const char *u)
 
 		if ( S_ISREG(st.st_mode) ) {
 			dprintf("index: %s -> %s\n", u, ipath);
-			obj = obj_file(r, ipath, st.st_size);
+			obj = obj_file(r, ipath, st.st_dev,
+					st.st_ino, st.st_size);
 			free(ipath);
 			if ( NULL == obj )
 				return 0;
@@ -781,7 +798,8 @@ static int scan_item(struct webroot *r, const char *u)
 			goto out_free;
 
 	}else if ( S_ISREG(st.st_mode) ) {
-		obj = obj_file(r, path, st.st_size);
+		obj = obj_file(r, path, st.st_dev,
+				st.st_ino, st.st_size);
 		if ( NULL == obj )
 			goto out_free;
 	}else if ( S_ISLNK(st.st_mode) ) {
