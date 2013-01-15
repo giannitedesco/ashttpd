@@ -87,9 +87,14 @@ static void print_obj(struct _webroot *r, const struct trie_dedge *re,
 		const struct webroot_redirect *redir;
 
 		redir = r->r_redir + re->re_oid;
-		printf(" - redirect to %.*s\n",
-			(int)redir->r_len,
-			(char *)r->r_map + redir->r_off);
+		if ( redir->r_off == WEBROOT_INVALID_REDIRECT ) {
+			printf(" - redirect to code %d\n",
+				(int)redir->r_len);
+		}else{
+			printf(" - redirect to %.*s\n",
+				(int)redir->r_len,
+				(char *)r->r_map + redir->r_off);
+		}
 	}else{
 		const struct webroot_file *file;
 
@@ -155,6 +160,7 @@ static int do_fsck(const char *fn)
 
 	max_len = dump_root(r, "fsck.dot");
 	printf("%s: max uri length is %zu\n", cmd,  max_len);
+	printf("%s: index map size %zu\n", cmd, r->r_map_sz);
 
 	buf = malloc(max_len);
 	print_deets(r, buf);
