@@ -7,7 +7,6 @@
 #include <time.h>
 
 #include <ashttpd.h>
-#include <nbio-listener.h>
 #include <ashttpd-conn.h>
 #include <ashttpd-buf.h>
 #include <ashttpd-fio.h>
@@ -26,6 +25,8 @@ struct _http_conn {
 	unsigned char	h_state;
 	unsigned char	h_rstate;
 	unsigned short	h_io_state;
+
+	struct http_listener *h_owner;
 
 	const uint8_t	*h_rptr;
 	struct http_buf	*h_req;
@@ -47,7 +48,6 @@ struct _http_conn {
 static struct http_fio *fio_current;
 static unsigned int concurrency;
 static hgang_t conns;
-static webroot_t webroot;
 
 static const char * const resp400 =
 	"HTTP/1.1 400 Bad Request\r\n"
@@ -145,7 +145,7 @@ size_t http_conn_data(http_conn_t h, int *fd, off_t *off)
 	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
 
 	if ( fd )
-		*fd = webroot_get_fd(webroot);
+		*fd = webroot_get_fd(h->h_owner->l_webroot);
 	if ( off )
 		*off = h->h_data_off;
 	return h->h_data_len;
@@ -400,7 +400,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	search_uri.v_ptr = (uint8_t *)nads.uri;
 	search_uri.v_len = strlen(nads.uri);
 
-	if ( !webroot_find(webroot, &search_uri, &n) ) {
+	if ( !webroot_find(h->h_owner->l_webroot, &search_uri, &n) ) {
 #if 0
 		h->h_data_off = obj404_f_ofs;
 		h->h_data_len = obj404_f_len;
@@ -624,6 +624,7 @@ static const struct nbio_ops http_ops = {
 
 static void http_conn(struct iothread *t, int s, void *priv)
 {
+	struct http_listener *hl = priv;
 	struct _http_conn *h;
 
 	h = hgang_alloc0(conns);
@@ -633,6 +634,7 @@ static void http_conn(struct iothread *t, int s, void *priv)
 		return;
 	}
 
+	h->h_owner = hl;
 	h->h_state = HTTP_CONN_REQUEST;
 
 	h->h_nbio.fd = s;
@@ -693,8 +695,34 @@ static struct http_fio *io_model(const char *name)
 	return &fio_sync;
 }
 
+static struct http_listener *http_listen(struct iothread *t,
+					uint32_t addr, uint16_t port, webroot_t root)
+{
+	struct http_listener *hl;
+
+	hl = calloc(1, sizeof(*hl));
+	if ( NULL == hl )
+		goto out;
+
+	hl->l_listen = listener_inet(t, SOCK_STREAM, IPPROTO_TCP,
+					addr, port, http_conn, hl, http_oom);
+	if ( NULL == hl->l_listen )
+		goto out_free;
+
+	hl->l_webroot = root;
+
+	goto out; /* success */
+
+out_free:
+	free(hl);
+	hl = NULL;
+out:
+	return hl;
+}
+
 int main(int argc, char **argv)
 {
+	static webroot_t webroot;
 	const char * webroot_fn;
 	struct iothread iothread;
 
@@ -719,10 +747,8 @@ int main(int argc, char **argv)
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
 
-	listener_inet(&iothread, SOCK_STREAM, IPPROTO_TCP,
-			0, 80, http_conn, NULL, http_oom);
-	listener_inet(&iothread, SOCK_STREAM, IPPROTO_TCP,
-			0, 1234, http_conn, NULL, http_oom);
+	http_listen(&iothread, 0, 80, webroot);
+	http_listen(&iothread, 0, 1234, webroot);
 
 	if ( !_io_init(&iothread) ) {
 		return EXIT_FAILURE;

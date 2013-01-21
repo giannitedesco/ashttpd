@@ -11,6 +11,7 @@
 #include <compiler.h>
 #include <list.h>
 #include <nbio.h>
+#include <nbio-listener.h>
 #include <vec.h>
 #include <os.h>
 
@@ -34,6 +35,12 @@ struct webroot_name {
 		struct ro_vec moved;
 	}u;
 	unsigned int code;
+};
+
+struct http_listener {
+	struct list_head l_list;
+	listener_t l_listen;
+	webroot_t l_webroot;
 };
 
 _private webroot_t webroot_open(const char *fn);

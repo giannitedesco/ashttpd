@@ -20,7 +20,7 @@
 #include <nbio-listener.h>
 #include <os.h>
 
-struct listener {
+struct _listener {
 	struct nbio io;
 	listener_cbfn_t cbfn;
 	listener_oom_t oom;
@@ -34,7 +34,7 @@ void listener_wake(struct iothread *t, struct nbio *io)
 
 static void listener_read(struct iothread *t, struct nbio *io)
 {
-	struct listener *l = (struct listener *)io;
+	struct _listener *l = (struct _listener *)io;
 	struct sockaddr_in sa;
 	socklen_t salen = sizeof(sa);
 	int fd;
@@ -90,17 +90,17 @@ static struct nbio_ops listener_ops = {
 	.dtor = listener_dtor,
 };
 
-int listener_inet(struct iothread *t, int type, int proto,
+listener_t listener_inet(struct iothread *t, int type, int proto,
 				uint32_t addr, uint16_t port,
 				listener_cbfn_t cb, void *priv,
 				listener_oom_t oom)
 {
 	struct sockaddr_in sa;
-	struct listener *l;
+	struct _listener *l;
 
 	l = calloc(1, sizeof(*l));
 	if ( l == NULL )
-		return 0;
+		goto out;
 
 	INIT_LIST_HEAD(&l->io.list);
 
@@ -110,7 +110,7 @@ int listener_inet(struct iothread *t, int type, int proto,
 
 	l->io.fd = socket(PF_INET, type, proto);
 	if ( l->io.fd < 0 )
-		goto err_free;
+		goto out_free;
 
 #if 1
 	do{
@@ -121,26 +121,30 @@ int listener_inet(struct iothread *t, int type, int proto,
 #endif
 
 	if ( !fd_block(l->io.fd, 0) )
-		goto err_close;
+		goto out_close;
 
 	sa.sin_family = AF_INET;
 	sa.sin_addr.s_addr = htonl(addr);
 	sa.sin_port = htons(port);
 
 	if ( bind(l->io.fd, (struct sockaddr *)&sa, sizeof(sa)) )
-		goto err_close;
+		goto out_close;
 
 	if ( listen(l->io.fd, 64) )
-		goto err_close;
+		goto out_close;
 
 	l->io.ops = &listener_ops;
 
 	nbio_add(t, &l->io, NBIO_READ);
-	return 1;
 
-err_close:
+	/* success */
+	goto out;
+
+out_close:
 	fd_close(l->io.fd);
-err_free:
+out_free:
 	free(l);
-	return 0;
+	l = NULL;
+out:
+	return l;
 }
