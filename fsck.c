@@ -17,6 +17,35 @@
 
 static const char *cmd = "fsckroot";
 
+static void calc_hist(struct _webroot *r,
+			const struct trie_dedge *re,
+			unsigned int num_edges,
+			unsigned int *hist)
+{
+	unsigned int i;
+
+	for(i = 0; i < num_edges; i++) {
+		uint32_t edges_idx, strtab_ofs;
+		const uint8_t *ptr;
+		uint8_t res[2];
+
+		edges_idx = trie_edges_index(re + i);
+		strtab_ofs = trie_strtab_ofs(re + i);
+		if ( string_is_resident(re + i) ) {
+			res[0] = strtab_ofs & 0xff;
+			res[1] = (strtab_ofs >> 8) & 0xff;
+			res[2] = (strtab_ofs >> 16) & 0xff;
+			ptr = res;
+		}else{
+			ptr = r->r_strtab + strtab_ofs;
+		}
+
+		calc_hist(r, r->r_trie + edges_idx,
+			re[i].re_num_edges, hist);
+		hist[re[i].re_strtab_len]++;
+	}
+}
+
 static size_t do_dump(FILE *f, struct _webroot *r,
 			const struct trie_dedge *re,
 			unsigned int num_edges)
@@ -147,8 +176,31 @@ static void print_deets(struct _webroot *r, char *buf)
 	do_deets(r, buf, r->r_trie, 1, buf);
 }
 
+static void dump_hist(unsigned int *hist, size_t n)
+{
+	unsigned int total, sofar;
+	size_t i;
+
+	for(total = i = 0; i < n; i++) {
+		total += hist[i];
+	}
+
+	printf("Trie edge histogram (val, cnt):\n");
+	printf("Total nodes %u\n", total);
+	for(sofar = i = 0; i < n; i++) {
+		if ( !hist[i] )
+			continue;
+
+		sofar += hist[i];
+		printf("  %zu: %u (%.3f%%)\n",
+			i, hist[i],
+			((float)sofar/(float)total) * 100.0);
+	}
+}
+
 static int do_fsck(const char *fn)
 {
+	unsigned int *hist;
 	struct _webroot *r;
 	size_t max_len;
 	char *buf;
@@ -159,6 +211,8 @@ static int do_fsck(const char *fn)
 	printf("%s: opened %s\n", cmd, fn);
 
 	max_len = dump_root(r, "fsck.dot");
+	hist = calloc(max_len, sizeof(*hist));
+	calc_hist(r, r->r_trie, 1, hist);
 	printf("%s: max uri length is %zu\n", cmd,  max_len);
 	printf("%s: index map size %zu\n", cmd, r->r_map_sz);
 
@@ -166,6 +220,7 @@ static int do_fsck(const char *fn)
 	print_deets(r, buf);
 	free(buf);
 
+	dump_hist(hist, max_len);
 	webroot_close(r);
 	return 1;
 }
