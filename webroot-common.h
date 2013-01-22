@@ -16,19 +16,4 @@ struct _webroot {
 	const uint8_t *r_strtab;
 };
 
-static inline uint32_t trie_edges_index(const struct trie_dedge *e)
-{
-	return (e->re_edges_hi << 16) | e->re_edges_idx;
-}
-
-static inline uint32_t trie_strtab_ofs(const struct trie_dedge *e)
-{
-	return (e->re_strtab_hi << 16) | e->re_strtab_ofs;
-}
-
-static inline int string_is_resident(const struct trie_dedge *e)
-{
-	return e->re_strtab_len < 4;
-}
-
 #endif /* _WEBROOT_COMMON_H */

@@ -14,8 +14,6 @@ struct trie_entry {
 typedef struct trie *trie_t;
 trie_t trie_new(const struct trie_entry *t, unsigned int cnt);
 int trie_write_trie(struct trie *r, fobuf_t buf);
-int trie_write_strtab(struct trie *r, fobuf_t buf);
-uint64_t trie_strtab_size(struct trie *r);
 uint64_t trie_trie_size(struct trie *r);
 uint64_t trie_num_edges(struct trie *r);
 void trie_free(trie_t r);

@@ -41,7 +41,7 @@ size_t http_req(struct http_request *r, const uint8_t *ptr, size_t len)
 	if ( clen > 0 )
 		r->content_len = clen;
 
-	if ( r->proto_vers >= HTTP_VER_1_1 ) {
+	if ( r->proto_vers >= HTTP_VER_1_1 || 1 ) {
 		static const struct ro_vec close_token = {
 			.v_ptr = (uint8_t *)"Close",
 			.v_len = 5,

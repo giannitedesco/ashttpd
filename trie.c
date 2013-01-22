@@ -16,21 +16,15 @@
 #include "trie.h"
 
 #define DEBUG_INCORE		0
-#define STRTAB_COMPRESS		1
 
 struct trie {
 	hgang_t			r_edges;
 	struct trie_edge	*r_root_edge;
 	struct list_head	r_bfs_order;
-	uint32_t		r_strtab_sz;
 	unsigned int		r_num_edges;
 	unsigned int		r_max_fanout;
 	unsigned int		r_max_cmp;
 	unsigned int		r_max_path;
-
-#if STRTAB_COMPRESS
-	uint8_t			*r_strtab_cmp;
-#endif
 };
 
 /* nodes in a radix tree do nothing but point to more edges so fuck it,
@@ -44,7 +38,6 @@ struct trie_edge {
 	unsigned int		e_num_edges;
 	unsigned int		e_bfs_idx;
 	struct list_head	e_edges;
-	size_t			e_strtab_ofs;
 };
 
 static struct trie_edge *edge_new(struct trie *r, struct trie_edge *parent)
@@ -102,7 +95,7 @@ static size_t common_prefix(const struct ro_vec *a, const struct ro_vec *b,
 		if ( a->v_ptr[ofs + ret] != b->v_ptr[ofs + ret] )
 			break;
 
-	return ret;
+	return (ret > RE_EDGE_MAX) ? RE_EDGE_MAX : ret;
 }
 
 static int do_radix(struct trie *r, struct trie_edge *n,
@@ -274,84 +267,19 @@ static void do_layout_inorder(struct trie_edge *e, gidx_oid_t *pk)
 		do_layout_inorder(ee, pk);
 }
 
-static int string_is_resident(struct trie_edge *e)
-{
-	return e->e_cmp.v_len < 4;
-}
-
-#if STRTAB_COMPRESS
-static uint8_t *add_to_strtab(uint8_t *ptr, uint8_t *end,
-				struct trie_edge *e)
-{
-	size_t i, len = end - ptr;
-	const struct ro_vec *s = &e->e_cmp;
-
-	if ( s->v_len > len )
-		goto append;
-
-	len -= s->v_len;
-	for(i = 0; i < len; i++) {
-		if ( !memcmp(ptr + i, s->v_ptr, s->v_len) ) {
-			e->e_strtab_ofs = i;
-			return end;
-		}
-	}
-
-append:
-	memcpy(end, s->v_ptr, s->v_len);
-	e->e_strtab_ofs = end - ptr;
-	return end + s->v_len;
-}
-#endif
-
 static void layout_radix(struct trie *r)
 {
 	struct trie_edge *e;
-	uint32_t s_ofs = 0, i = 0;
+	uint32_t i = 0;
 	gidx_oid_t pk = 0;
-#if STRTAB_COMPRESS
-	uint8_t *ptr;
-#endif
 
 	do_layout_inorder(r->r_root_edge, &pk);
 
 	do_layout_bfs(r);
 
-	r->r_strtab_sz = 0;
-
 	list_for_each_entry(e, &r->r_bfs_order, e_bfs) {
 		e->e_bfs_idx = i++;
-		if ( string_is_resident(e) ) {
-			unsigned int j;
-			for(e->e_strtab_ofs = j = 0; j < e->e_cmp.v_len; j++) {
-				e->e_strtab_ofs |= (e->e_cmp.v_ptr[j] << (j << 3));
-			}
-		}else{
-			e->e_strtab_ofs = s_ofs;
-			s_ofs += e->e_cmp.v_len;
-			r->r_strtab_sz += e->e_cmp.v_len;
-		}
 	}
-
-	assert(s_ofs == r->r_strtab_sz);
-
-#if STRTAB_COMPRESS
-	ptr = r->r_strtab_cmp = malloc(r->r_strtab_sz);
-	if ( NULL == ptr ) {
-		//WARN("compression failed, not enough memory");
-		return;
-	}
-
-	list_for_each_entry(e, &r->r_bfs_order, e_bfs) {
-		if ( string_is_resident(e) )
-			continue;
-		ptr = add_to_strtab(r->r_strtab_cmp, ptr, e);
-	}
-
-	//INFO("strtab compressed from %"PRId32" to %zu\n",
-	//		r->r_strtab_sz, ptr - r->r_strtab_cmp);
-	r->r_strtab_sz = ptr - r->r_strtab_cmp;
-#endif
 }
 
 trie_t trie_new(const struct trie_entry *ent, unsigned int cnt)
@@ -390,9 +318,6 @@ out_free:
 void trie_free(trie_t r)
 {
 	if (r) {
-#if STRTAB_COMPRESS
-		free(r->r_strtab_cmp);
-#endif
 		hgang_free(r->r_edges);
 		free(r);
 	}
@@ -420,13 +345,12 @@ static int node_to_disk(fobuf_t buf, struct trie_edge *e, uint32_t idx)
 	 * node so any reference to that would introduce a cycle
 	 */
 	assert(e->e_num_edges < 0x100);
+	assert(e->e_cmp.v_len <= sizeof(d.re_str));
 
 	d.re_num_edges = e->e_num_edges;
-	d.re_strtab_len = e->e_cmp.v_len;
-	d.re_strtab_hi = ((e->e_strtab_ofs) >> 16) & 0xff;
-	d.re_strtab_ofs = (e->e_strtab_ofs) & 0xffff;
-	d.re_edges_hi = ((idx) >> 16) & 0xff;
-	d.re_edges_idx = (idx) & 0xffff;
+	d.re_strlen = e->e_cmp.v_len;
+	d.re_edges_idx = idx;
+	memcpy(d.re_str, e->e_cmp.v_ptr, e->e_cmp.v_len);
 
 	if ( !fobuf_write(buf, &d, sizeof(d)) )
 		return 0;
@@ -455,26 +379,6 @@ int trie_write_trie(struct trie *r, fobuf_t buf)
 	return 1;
 }
 
-int trie_write_strtab(struct trie *r, fobuf_t buf)
-{
-	struct trie_edge *e;
-
-#if STRTAB_COMPRESS
-	if ( r->r_strtab_cmp ) {
-		return fobuf_write(buf, r->r_strtab_cmp, r->r_strtab_sz);
-	}
-#endif
-
-	list_for_each_entry(e, &r->r_bfs_order, e_bfs) {
-		if ( string_is_resident(e) )
-			continue;
-		if ( !fobuf_write(buf, e->e_cmp.v_ptr, e->e_cmp.v_len) )
-			return 0;
-	}
-
-	return 1;
-}
-
 uint64_t trie_trie_size(struct trie *r)
 {
 	return sizeof(struct trie_dedge) * r->r_num_edges;
@@ -483,9 +387,4 @@ uint64_t trie_trie_size(struct trie *r)
 uint64_t trie_num_edges(struct trie *r)
 {
 	return r->r_num_edges;
-}
-
-uint64_t trie_strtab_size(struct trie *r)
-{
-	return r->r_strtab_sz;
 }

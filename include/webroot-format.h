@@ -12,7 +12,6 @@
  *      Trie edges
  *      Redirect objects
  *	File objects
- *      Trie string table
  *      Mime string table
  *      Redirect string table
  * - Not mapped
@@ -24,7 +23,7 @@
 */
 
 #define WEBROOT_MAGIC		((0x37 << 24) | (0x13 << 16) | 'W' << 8 | 'w')
-#define WEBROOT_CURRENT_VER	2
+#define WEBROOT_CURRENT_VER	3
 struct webroot_hdr {
 	uint32_t	h_num_edges;
 	uint32_t	h_num_redirect;
@@ -33,6 +32,7 @@ struct webroot_hdr {
 	uint32_t	h_magic;
 	uint32_t	h_vers;
 	uint32_t	h_files_begin;
+	uint32_t	h__pad;
 } _packed;
 
 #define WEBROOT_DIGEST_LEN	20
@@ -54,14 +54,13 @@ struct webroot_redirect {
 #define GIDX_INVALID_OID 0xffffffffU
 typedef uint32_t gidx_oid_t;
 
+#define RE_EDGE_MAX	8
 struct trie_dedge {
 	gidx_oid_t	re_oid;
+	uint32_t	re_edges_idx;
 	uint8_t		re_num_edges;
-	uint8_t		re_strtab_len;
-	uint8_t		re_edges_hi;
-	uint8_t		re_strtab_hi;
-	uint16_t	re_edges_idx;
-	uint16_t	re_strtab_ofs;
+	uint8_t		re_strlen;
+	uint8_t		re_str[RE_EDGE_MAX];
 }_packed;
 
 #endif /* _WEBROOT_FORMAT_H */

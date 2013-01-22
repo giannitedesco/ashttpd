@@ -25,24 +25,12 @@ static void calc_hist(struct _webroot *r,
 	unsigned int i;
 
 	for(i = 0; i < num_edges; i++) {
-		uint32_t edges_idx, strtab_ofs;
-		const uint8_t *ptr;
-		uint8_t res[2];
+		uint32_t edges_idx;
 
-		edges_idx = trie_edges_index(re + i);
-		strtab_ofs = trie_strtab_ofs(re + i);
-		if ( string_is_resident(re + i) ) {
-			res[0] = strtab_ofs & 0xff;
-			res[1] = (strtab_ofs >> 8) & 0xff;
-			res[2] = (strtab_ofs >> 16) & 0xff;
-			ptr = res;
-		}else{
-			ptr = r->r_strtab + strtab_ofs;
-		}
-
+		edges_idx = re[i].re_edges_idx;
 		calc_hist(r, r->r_trie + edges_idx,
 			re[i].re_num_edges, hist);
-		hist[re[i].re_strtab_len]++;
+		hist[re[i].re_strlen]++;
 	}
 }
 
@@ -55,26 +43,15 @@ static size_t do_dump(FILE *f, struct _webroot *r,
 
 	for(i = 0; i < num_edges; i++) {
 		unsigned int j;
-		uint32_t edges_idx, strtab_ofs;
-		const uint8_t *ptr;
-		uint8_t res[2];
+		uint32_t edges_idx;
 		size_t tmp;
 
-		edges_idx = trie_edges_index(re + i);
-		strtab_ofs = trie_strtab_ofs(re + i);
-		if ( string_is_resident(re + i) ) {
-			res[0] = strtab_ofs & 0xff;
-			res[1] = (strtab_ofs >> 8) & 0xff;
-			res[2] = (strtab_ofs >> 16) & 0xff;
-			ptr = res;
-		}else{
-			ptr = r->r_strtab + strtab_ofs;
-		}
+		edges_idx = re[i].re_edges_idx;
 
 		fprintf(f, "\t\"n_%p\" [shape=rectangle label=\"%.*s\"];\n",
-			re + i, (int)re[i].re_strtab_len, ptr);
+			re + i, (int)re[i].re_strlen, re[i].re_str);
 		tmp = do_dump(f, r, r->r_trie + edges_idx,
-			re[i].re_num_edges) + re[i].re_strtab_len;
+			re[i].re_num_edges) + re[i].re_strlen;
 		if ( tmp > ret )
 			ret = tmp;
 		for(j = 0; j < re[i].re_num_edges; j++) {
@@ -145,29 +122,18 @@ static void do_deets(struct _webroot *r, char *uri,
 	unsigned int i;
 
 	for(i = 0; i < num_edges; i++) {
-		uint32_t edges_idx, strtab_ofs;
-		const uint8_t *ptr;
-		uint8_t res[2];
+		uint32_t edges_idx;
 
-		edges_idx = trie_edges_index(re + i);
-		strtab_ofs = trie_strtab_ofs(re + i);
-		if ( string_is_resident(re + i) ) {
-			res[0] = strtab_ofs & 0xff;
-			res[1] = (strtab_ofs >> 8) & 0xff;
-			res[2] = (strtab_ofs >> 16) & 0xff;
-			ptr = res;
-		}else{
-			ptr = r->r_strtab + strtab_ofs;
-		}
+		edges_idx = re[i].re_edges_idx;
 
-		memcpy(buf, ptr, re[i].re_strtab_len);
+		memcpy(buf, re[i].re_str, re[i].re_strlen);
 		if ( re[i].re_oid != GIDX_INVALID_OID ) {
 			print_obj(r, &re[i], uri,
-				((buf + re[i].re_strtab_len) - uri));
+				((buf + re[i].re_strlen) - uri));
 		}
 		do_deets(r, uri, r->r_trie + edges_idx,
 			re[i].re_num_edges,
-			buf + re[i].re_strtab_len);
+			buf + re[i].re_strlen);
 	}
 }
 
