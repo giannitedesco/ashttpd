@@ -47,6 +47,7 @@ HTTPD_OBJ = httpd.o \
 		nbio-poll.o \
 		nbio-listener.o \
 		nbio-eventfd.o \
+		nbio-inotify.o \
 		rbtree.o \
 		hgang.o \
 		vec.o \
