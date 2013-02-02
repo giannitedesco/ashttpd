@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #if 0
 #define dprintf printf
@@ -153,7 +154,7 @@ webroot_t webroot_open(const char *fn)
 out_unmap:
 	munmap((void *)r->r_map, r->r_map_sz);
 out_close:
-	fd_close(r->r_fd);
+	close(r->r_fd);
 out_free:
 	free(r);
 	r = NULL;
@@ -229,7 +230,7 @@ void webroot_close(webroot_t r)
 {
 	if ( r ) {
 		munmap((void *)r->r_map, r->r_map_sz);
-		fd_close(r->r_fd);
+		close(r->r_fd);
 		free(r);
 	}
 }

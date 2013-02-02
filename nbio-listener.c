@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <list.h>
@@ -81,7 +82,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 
 static void listener_dtor(struct iothread *t, struct nbio *io)
 {
-	fd_close(io->fd);
+	close(io->fd);
 	free(io);
 }
 
@@ -139,7 +140,7 @@ int listener_inet(struct iothread *t, int type, int proto,
 	return 1;
 
 err_close:
-	fd_close(l->io.fd);
+	close(l->io.fd);
 err_free:
 	free(l);
 	return 0;

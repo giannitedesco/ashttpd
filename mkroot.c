@@ -388,7 +388,7 @@ again:
 	etag(f->o_u.file.digest, sha);
 	rc = 1;
 out_close:
-	fd_close(fd);
+	close(fd);
 out:
 	return rc;
 }
@@ -938,7 +938,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 	ret = 1;
 
 out_close:
-	fd_close(fd);
+	close(fd);
 out_free:
 	webroot_free(r);
 out:
