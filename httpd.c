@@ -372,7 +372,6 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 	return 1;
 }
 
-uint64_t reqs;
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
 {
@@ -488,8 +487,6 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		printf("Truncated header...\n");
 		return 0;
 	}
-
-	reqs++;
 
 	buf_done_write(h->h_res, len);
 	if ( head )
@@ -697,12 +694,6 @@ static struct http_fio *io_model(const char *name)
 	return &fio_sync;
 }
 
-void my_sighandler(int sig)
-{
-	printf("%"PRIu64" reqs handled\n", reqs);
-	exit(0);
-}
-
 int main(int argc, char **argv)
 {
 	const char * webroot_fn;
@@ -738,7 +729,6 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	signal(SIGINT, my_sighandler);
 	do {
 		nbio_pump(&iothread, -1);
 	}while ( !list_empty(&iothread.active) );
