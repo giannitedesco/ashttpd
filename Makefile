@@ -100,13 +100,7 @@ else
 CLEAN_DEP :=
 endif
 
-ifeq ($(filter root, $(MAKECMDGOALS)),root)
-ROOT_DEP := root
-else
-ROOT_DEP :=
-endif
-
-%.o %.d: %.c $(CLEAN_DEP) $(ROOT_DEP) $(CONFIG_MAK) Makefile
+%.o .%.d: %.c $(CLEAN_DEP) Makefile
 	@echo " [C] $<"
 	@$(CC) $(CFLAGS) -MMD -MF $(patsubst %.o, .%.d, $@) \
 		-MT $(patsubst .%.d, %.o, $@) \
