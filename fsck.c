@@ -17,10 +17,11 @@
 
 static const char *cmd = "fsckroot";
 
-static void calc_hist(struct _webroot *r,
+static void calc_hists(struct _webroot *r,
 			const struct trie_dedge *re,
 			unsigned int num_edges,
-			unsigned int *hist)
+			unsigned int *hist,
+			unsigned int *hist2)
 {
 	unsigned int i;
 
@@ -28,9 +29,10 @@ static void calc_hist(struct _webroot *r,
 		uint32_t edges_idx;
 
 		edges_idx = re[i].re_edges_idx;
-		calc_hist(r, r->r_trie + edges_idx,
-			re[i].re_num_edges, hist);
+		calc_hists(r, r->r_trie + edges_idx,
+			re[i].re_num_edges, hist, hist2);
 		hist[re[i].re_strlen]++;
+		hist2[re[i].re_num_edges]++;
 	}
 }
 
@@ -151,7 +153,29 @@ static void dump_hist(unsigned int *hist, size_t n)
 		total += hist[i];
 	}
 
-	printf("Trie edge histogram (val, cnt):\n");
+	printf("Trie edge string-length histogram (val, cnt):\n");
+	printf("Total nodes %u\n", total);
+	for(sofar = i = 0; i < n; i++) {
+		if ( !hist[i] )
+			continue;
+
+		sofar += hist[i];
+		printf("  %zu: %u (%.3f%%)\n",
+			i, hist[i],
+			((float)sofar/(float)total) * 100.0);
+	}
+}
+
+static void dump_fanout_hist(unsigned int *hist, size_t n)
+{
+	unsigned int total, sofar;
+	size_t i;
+
+	for(total = i = 0; i < n; i++) {
+		total += hist[i];
+	}
+
+	printf("Trie fanout histogram (val, cnt):\n");
 	printf("Total nodes %u\n", total);
 	for(sofar = i = 0; i < n; i++) {
 		if ( !hist[i] )
@@ -166,7 +190,7 @@ static void dump_hist(unsigned int *hist, size_t n)
 
 static int do_fsck(const char *fn)
 {
-	unsigned int *hist;
+	unsigned int *hist, *hist2;
 	struct _webroot *r;
 	size_t max_len;
 	char *buf;
@@ -178,7 +202,8 @@ static int do_fsck(const char *fn)
 
 	max_len = dump_root(r, "fsck.dot");
 	hist = calloc(max_len, sizeof(*hist));
-	calc_hist(r, r->r_trie, 1, hist);
+	hist2 = calloc(0x100, sizeof(*hist2));
+	calc_hists(r, r->r_trie, 1, hist, hist2);
 	printf("%s: max uri length is %zu\n", cmd,  max_len);
 	printf("%s: index map size %zu\n", cmd, r->r_map_sz);
 
@@ -187,7 +212,10 @@ static int do_fsck(const char *fn)
 	free(buf);
 
 	dump_hist(hist, max_len);
+	dump_fanout_hist(hist2, 0x100);
 	webroot_close(r);
+	free(hist);
+	free(hist2);
 	return 1;
 }
 
