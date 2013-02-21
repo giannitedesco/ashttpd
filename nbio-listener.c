@@ -120,6 +120,13 @@ int listener_inet(struct iothread *t, int type, int proto,
 				&val, sizeof(val));
 	}while(0);
 #endif
+#ifdef TCP_FASTOPEN
+	do{
+		int q = 64;
+		setsockopt(l->io.fd, SOL_TCP, TCP_FASTOPEN,
+				&q, sizeof(q));
+	}while(0);
+#endif
 
 	if ( !fd_block(l->io.fd, 0) )
 		goto err_close;
