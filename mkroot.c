@@ -296,8 +296,8 @@ static int webroot_prep(struct webroot *r)
 	if ( NULL == t )
 		goto out_free;
 
-	printf("%s: index: trie=%"PRId64" bytes, strtab=%"PRId64" bytes\n",
-		cmd, trie_trie_size(t), trie_strtab_size(t));
+	printf("%s: index: trie=%"PRId64" bytes\n",
+		cmd, trie_trie_size(t));
 	r->r_trie = t;
 	r->r_trie_ent = ent;
 
@@ -305,8 +305,7 @@ static int webroot_prep(struct webroot *r)
 	off = sizeof(struct webroot_hdr) +
 		trie_trie_size(r->r_trie) +
 		sizeof(struct webroot_redirect) * r->r_num_redirect +
-		sizeof(struct webroot_file) * r->r_num_file +
-		trie_strtab_size(r->r_trie);
+		sizeof(struct webroot_file) * r->r_num_file;
 
 	list_for_each_entry(m, &r->r_mime_type, m_list) {
 		m->m_strtab_off = off;
@@ -389,7 +388,7 @@ again:
 	etag(f->o_u.file.digest, sha);
 	rc = 1;
 out_close:
-	fd_close(fd);
+	close(fd);
 out:
 	return rc;
 }
@@ -438,8 +437,7 @@ static int write_header(struct webroot *r, fobuf_t out)
 	hdr.h_num_edges = trie_num_edges(r->r_trie);
 	hdr.h_num_redirect = r->r_num_redirect;
 	hdr.h_num_file = r->r_num_file;
-	hdr.h_strtab_sz = trie_strtab_size(r->r_trie) +
-				r->r_mimetab_sz +
+	hdr.h_strtab_sz = r->r_mimetab_sz +
 				r->r_redirtab_sz;
 	hdr.h_magic = WEBROOT_MAGIC;
 	hdr.h_vers = WEBROOT_CURRENT_VER;
@@ -449,7 +447,6 @@ static int write_header(struct webroot *r, fobuf_t out)
 		trie_trie_size(r->r_trie) +
 		sizeof(struct webroot_redirect) * r->r_num_redirect +
 		sizeof(struct webroot_file) * r->r_num_file +
-		trie_strtab_size(r->r_trie) +
 		r->r_mimetab_sz +
 		r->r_redirtab_sz;
 
@@ -531,8 +528,6 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 		return 0;
 	if ( !write_file_objs(r, out) )
 		return 0;
-	if ( !trie_write_strtab(r->r_trie, out) )
-		return 0;
 	if ( !write_mimetab(r, out) )
 		return 0;
 	if ( !write_redirtab(r, out) )
@@ -597,7 +592,6 @@ static uint64_t webroot_output_size(struct webroot *r)
 		trie_trie_size(r->r_trie) +
 		sizeof(struct webroot_redirect) * r->r_num_redirect +
 		sizeof(struct webroot_file) * r->r_num_file +
-		trie_strtab_size(r->r_trie) +
 		r->r_mimetab_sz +
 		r->r_redirtab_sz +
 		r->r_files_sz;
@@ -944,7 +938,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 	ret = 1;
 
 out_close:
-	fd_close(fd);
+	close(fd);
 out_free:
 	webroot_free(r);
 out:

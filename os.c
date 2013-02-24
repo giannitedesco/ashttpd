@@ -105,27 +105,6 @@ again:
 	return 1;
 }
 
-/** Close a file descriptor.
- * \ingroup g_fdctl
- * @param fd The file descriptor to close.
- *
- * Closes a file descriptor handling all possible errors. I bet you didn't
- * know that close(2) could return EINTR.
- *
- * @return 0 on error, 1 on success.
-*/
-
-int fd_close(int fd)
-{
-	int ret;
-intr:
-	ret = close(fd);
-	if ( ret && errno == EINTR )
-		goto intr;
-
-	return (ret == 0);
-}
-
 /** Configure blocking mode on a file descriptor.
  * \ingroup g_fdctl
  * @param fd FD to set blocking mode on
@@ -202,6 +181,7 @@ int fd_read(int fd, void *buf, size_t *sz, int *eof)
 	size_t len = *sz;
 	ssize_t ret;
 
+	*eof = 0;
 	*sz = 0;
 
 again:

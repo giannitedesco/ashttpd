@@ -147,8 +147,8 @@ int fobuf_close(fobuf_t b)
 		ret = 0;
 	}
 
-	if ( !fd_close(b->fd) ) {
-		//ERR("fsync: %s", os_err());
+	if ( !close(b->fd) ) {
+		//ERR("close: %s", os_err());
 		ret = 0;
 	}
 
@@ -185,7 +185,7 @@ int fobuf_newfd(fobuf_t b, int fd)
 	if ( fsync(b->fd) && errno!=EROFS && errno!=EINVAL )
 		ret = 0;
 
-	if ( !fd_close(b->fd) )
+	if ( !close(b->fd) )
 		ret = 0;
 
 noflush:

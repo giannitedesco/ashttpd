@@ -132,7 +132,7 @@ static const struct mnode *markov_step(const struct mnode *n)
 
 static void abort_client(struct iothread *t, struct http_client *c)
 {
-	fd_close(c->c_nbio.fd);
+	close(c->c_nbio.fd);
 	c->c_nbio.fd = -1;
 	nbio_del(t, &c->c_nbio);
 }

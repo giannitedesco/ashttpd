@@ -13,6 +13,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <list.h>
@@ -81,7 +82,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 
 static void listener_dtor(struct iothread *t, struct nbio *io)
 {
-	fd_close(io->fd);
+	close(io->fd);
 	free(io);
 }
 
@@ -119,6 +120,13 @@ listener_t listener_inet(struct iothread *t, int type, int proto,
 				&val, sizeof(val));
 	}while(0);
 #endif
+#ifdef TCP_FASTOPEN
+	do{
+		int q = 64;
+		setsockopt(l->io.fd, SOL_TCP, TCP_FASTOPEN,
+				&q, sizeof(q));
+	}while(0);
+#endif
 
 	if ( !fd_block(l->io.fd, 0) )
 		goto out_close;
@@ -141,8 +149,7 @@ listener_t listener_inet(struct iothread *t, int type, int proto,
 	goto out;
 
 out_close:
-	fd_close(l->io.fd);
-out_free:
+	close(l->io.fd);
 	free(l);
 	l = NULL;
 out:

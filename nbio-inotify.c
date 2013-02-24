@@ -74,7 +74,7 @@ static void efd_read(struct iothread *t, struct nbio *nbio)
 static void efd_dtor(struct iothread *t, struct nbio *nbio)
 {
 	struct _nbnotify *n = (struct _nbnotify *)nbio;
-	fd_close(n->n_io.fd);
+	close(n->n_io.fd);
 	free(n);
 }
 

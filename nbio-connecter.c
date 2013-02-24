@@ -59,7 +59,7 @@ static void connect_write(struct iothread *t, struct nbio *io)
 	nbio_del(t, &c->io);
 	return;
 barf:
-	fd_close(c->io.fd);
+	close(c->io.fd);
 	c->io.fd = -1;
 	nbio_del(t, &c->io);
 }
@@ -68,7 +68,7 @@ static void connect_dtor(struct iothread *t, struct nbio *io)
 {
 	struct connecter *c = (struct connecter *)io;
 	if ( c->io.fd >= 0 )
-		fd_close(c->io.fd);
+		close(c->io.fd);
 	hgang_return(connecters, c);
 }
 

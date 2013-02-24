@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
 
@@ -41,7 +42,7 @@ static void efd_read(struct iothread *t, struct nbio *n)
 static void efd_dtor(struct iothread *t, struct nbio *n)
 {
 	struct nb_efd *efd = (struct nb_efd *)n;
-	fd_close(efd->e_nbio.fd);
+	close(efd->e_nbio.fd);
 	free(efd);
 }
 

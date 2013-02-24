@@ -6,6 +6,7 @@
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <unistd.h>
 
 #if 0
 #define dprintf printf
@@ -23,34 +24,23 @@ static gidx_oid_t trie_query(struct _webroot *r,
 	unsigned int i;
 
 	while(num_edges) {
-		uint32_t edges_idx, strtab_ofs;
-		uint8_t res[3];
-		const uint8_t *ptr;
+		uint32_t edges_idx;
 		struct ro_vec match;
 		int cmp;
 
 		i = (num_edges / 2);
 
-		edges_idx = trie_edges_index(re + i);
-		strtab_ofs = trie_strtab_ofs(re + i);
-		if ( string_is_resident(re + i) ) {
-			res[0] = strtab_ofs & 0xff;
-			res[1] = (strtab_ofs >> 8) & 0xff;
-			res[2] = (strtab_ofs >> 16) & 0xff;
-			ptr = res;
-		}else{
-			ptr = r->r_strtab + strtab_ofs;
-		}
+		edges_idx = re[i].re_edges_idx;
 
 		match = *str;
-		match.v_len = re[i].re_strtab_len;
+		match.v_len = re[i].re_strlen;
 
-		cmp = memcmp(match.v_ptr, ptr, match.v_len);
+		cmp = memcmp(match.v_ptr, re[i].re_str, match.v_len);
 		dprintf("'%.*s' vs '%.*s' (idx[%lu] / %u) = %d\n",
 			(int)match.v_len,
 			match.v_ptr,
-			(int)re[i].re_strtab_len,
-			ptr,
+			(int)re[i].re_strlen,
+			re[i].re_str,
 			&re[i] - r->r_trie,
 			num_edges,
 			cmp);
@@ -164,7 +154,7 @@ webroot_t webroot_open(const char *fn)
 out_unmap:
 	munmap((void *)r->r_map, r->r_map_sz);
 out_close:
-	fd_close(r->r_fd);
+	close(r->r_fd);
 out_free:
 	free(r);
 	r = NULL;
@@ -240,7 +230,7 @@ void webroot_close(webroot_t r)
 {
 	if ( r ) {
 		munmap((void *)r->r_map, r->r_map_sz);
-		fd_close(r->r_fd);
+		close(r->r_fd);
 		free(r);
 	}
 }

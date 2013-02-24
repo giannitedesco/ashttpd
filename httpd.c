@@ -14,6 +14,7 @@
 #include <http-req.h>
 #include <normalize.h>
 #include <hgang.h>
+#include <signal.h>
 
 #define HTTP_CONN_REQUEST	0
 /* FIXME: gobble any POST data */
@@ -112,7 +113,7 @@ static void http_kill(struct iothread *t, struct _http_conn *h)
 		return;
 
 	dprintf("Connection killed\n");
-	fd_close(h->h_nbio.fd);
+	close(h->h_nbio.fd);
 	h->h_nbio.fd = -1;
 	assert(concurrency);
 	--concurrency;
@@ -630,7 +631,7 @@ static void http_conn(struct iothread *t, int s, void *priv)
 	h = hgang_alloc0(conns);
 	if ( NULL == h ) {
 		fprintf(stderr, "hgang_alloc: %s\n", os_err());
-		fd_close(s);
+		close(s);
 		return;
 	}
 
