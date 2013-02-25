@@ -33,6 +33,7 @@ CFLAGS := -g -pipe -O2 -Wall \
 HTTPD_BIN := httpd
 HTTPD_LIBS := $(LIBAIO)
 HTTPD_OBJ = httpd.o \
+		http_conn.o \
 		http_parse.o \
 		http_req.o \
 		http_buf.o \

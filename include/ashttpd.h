@@ -43,10 +43,19 @@ struct http_listener {
 	webroot_t l_webroot;
 };
 
+/* webroot API */
 _private webroot_t webroot_open(const char *fn);
 _private int webroot_get_fd(webroot_t r);
 _private int webroot_find(webroot_t r, const struct ro_vec *uri,
 				struct webroot_name *out);
 _private void webroot_close(webroot_t r);
+
+/* handle HTTP protocol connections */
+_private int http_proto_init(struct iothread *t);
+_private void http_conn(struct iothread *t, int s, void *priv);
+_private void http_oom(struct iothread *t, struct nbio *listener);
+
+/* current file I/O model */
+extern struct http_fio *fio_current;
 
 #endif /* _ASHTTPD_H */
