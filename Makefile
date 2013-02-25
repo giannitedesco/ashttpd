@@ -49,7 +49,7 @@ HTTPD_OBJ = httpd.o \
 		nbio-listener.o \
 		nbio-eventfd.o \
 		nbio-inotify.o \
-		rbtree.o \
+		critbit.o \
 		hgang.o \
 		vec.o \
 		os.o
