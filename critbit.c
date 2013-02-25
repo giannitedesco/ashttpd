@@ -24,7 +24,7 @@ struct _cb_node {
 	uint8_t is_leaf;
 };
 
-int cb_contains(struct cb_tree * t, const char *u)
+int cb_contains(struct cb_tree * t, const char *u, void **ppv)
 {
 	const size_t ulen = strlen(u);
 	struct _cb_node *q;
@@ -41,10 +41,16 @@ int cb_contains(struct cb_tree * t, const char *u)
 		direction = (1 + (q->otherbits | c)) >> 8;
 	}
 
-	return !strcmp(u, q->u.leaf.key);
+	if ( strcmp(u, q->u.leaf.key) )
+		return 0;
+
+	if ( ppv )
+		*ppv = q->u.leaf.val;
+
+	return 1;
 }
 
-int cb_insert(struct cb_tree *t, const char *u)
+int cb_insert(struct cb_tree *t, const char *u, void ***pppv)
 {
 	const size_t ulen = strlen(u);
 	struct _cb_node *q;
@@ -66,8 +72,10 @@ int cb_insert(struct cb_tree *t, const char *u)
 			free(n);
 			return 0;
 		}
-		n->u.leaf.val = NULL;
 		t->root = n;
+		n->u.leaf.val = NULL;
+		if ( pppv )
+			*pppv = &n->u.leaf.val;
 		return 2;
 	}
 
@@ -92,6 +100,8 @@ int cb_insert(struct cb_tree *t, const char *u)
 		goto different_byte_found;
 	}
 
+	if ( pppv )
+		*pppv = &q->u.leaf.val;
 	return 1;
 
 different_byte_found:
@@ -144,11 +154,13 @@ different_byte_found:
 
 	newnode->u.internal.child[newdirection] = *wherep;
 	*wherep = newnode;
+	if ( pppv )
+		*pppv = &newleaf->u.leaf.val;
 
 	return 2;
 }
 
-int cb_delete(struct cb_tree * t, const char *u)
+int cb_delete(struct cb_tree * t, const char *u, void **ppv)
 {
 	const size_t ulen = strlen(u);
 	struct _cb_node *p, *q;
@@ -173,6 +185,8 @@ int cb_delete(struct cb_tree * t, const char *u)
 	if (0 != strcmp(u, p->u.leaf.key))
 		return 0;
 
+	if ( ppv )
+		*ppv = p->u.leaf.val;
 	free(p->u.leaf.key);
 	free(p);
 
@@ -186,21 +200,23 @@ int cb_delete(struct cb_tree * t, const char *u)
 	return 1;
 }
 
-static void traverse(struct _cb_node *n)
+static void traverse(struct _cb_node *n, void (*cb)(void *priv))
 {
 	if (n->is_leaf) {
+		if ( cb )
+			(*cb)(n->u.leaf.val);
 		free(n->u.leaf.key);
 	}else{
-		traverse(n->u.internal.child[0]);
-		traverse(n->u.internal.child[1]);
+		traverse(n->u.internal.child[0], cb);
+		traverse(n->u.internal.child[1], cb);
 	}
 	free(n);
 }
 
-void cb_free(struct cb_tree *t)
+void cb_free(struct cb_tree *t, void (*cb)(void *priv))
 {
 	if (t->root) {
-		traverse(t->root);
+		traverse(t->root, cb);
 		t->root = NULL;
 	}
 }
