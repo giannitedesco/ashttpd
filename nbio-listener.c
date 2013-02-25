@@ -150,6 +150,7 @@ listener_t listener_inet(struct iothread *t, int type, int proto,
 
 out_close:
 	close(l->io.fd);
+out_free:
 	free(l);
 	l = NULL;
 out:

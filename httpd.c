@@ -1,6 +1,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -12,6 +13,7 @@
 #include <ashttpd-fio.h>
 #include <http-parse.h>
 #include <http-req.h>
+#include <nbio-inotify.h>
 #include <normalize.h>
 #include <hgang.h>
 #include <signal.h>
@@ -696,8 +698,11 @@ static struct http_fio *io_model(const char *name)
 	return &fio_sync;
 }
 
+static LIST_HEAD(listeners);
+
 static struct http_listener *http_listen(struct iothread *t,
-					uint32_t addr, uint16_t port, webroot_t root)
+					uint32_t addr, uint16_t port,
+					webroot_t root)
 {
 	struct http_listener *hl;
 
@@ -711,6 +716,9 @@ static struct http_listener *http_listen(struct iothread *t,
 		goto out_free;
 
 	hl->l_webroot = root;
+	list_add_tail(&hl->l_list, &listeners);
+	printf("http: Listening on %s:%d\n",
+		inet_ntoa((struct in_addr){addr}), port);
 
 	goto out; /* success */
 
@@ -726,12 +734,19 @@ int main(int argc, char **argv)
 	static webroot_t webroot;
 	const char * webroot_fn;
 	struct iothread iothread;
+	nbnotify_t dir;
 
 	webroot_fn = (argc > 1) ? argv[1] : "webroot.objdb";
 	fio_current = io_model((argc > 2) ? argv[2] : NULL);
 
 	printf("data: %s model\n", fio_current->label);
 	printf("webroot: %s\n", webroot_fn);
+
+	if ( !nbio_init(&iothread, NULL) )
+		return EXIT_FAILURE;
+
+	dir = nbio_inotify_new(&iothread);
+	nbio_inotify_watch_dir(dir, "./vhosts", NULL, NULL);
 
 	webroot = webroot_open(webroot_fn);
 	if ( NULL == webroot ) {
@@ -744,9 +759,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "conns: %s\n", os_err());
 		return EXIT_FAILURE;
 	}
-
-	if ( !nbio_init(&iothread, NULL) )
-		return EXIT_FAILURE;
 
 	http_listen(&iothread, 0, 80, webroot);
 	http_listen(&iothread, 0, 1234, webroot);
