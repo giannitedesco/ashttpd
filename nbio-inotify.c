@@ -17,7 +17,7 @@
 #include <nbio-inotify.h>
 #include <os.h>
 
-#if 1
+#if 0
 #define dprintf printf
 #else
 #define dprintf(x...) do {} while(0)
