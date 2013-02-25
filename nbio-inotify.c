@@ -187,6 +187,9 @@ nbnotify_t nbio_inotify_new(struct iothread *t)
 {
 	struct _nbnotify *n;
 
+	/* quiet unused warning when dprintf disabled */
+	mask2str(0);
+
 	n = calloc(1, sizeof(*n));
 	if ( NULL == n ) {
 		fprintf(stderr, "nbio_inotify_new: %s\n", os_err());
