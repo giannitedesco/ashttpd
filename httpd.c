@@ -18,7 +18,7 @@
 #include <nbio-inotify.h>
 #include <normalize.h>
 #include <hgang.h>
-#include <signal.h>
+#include <critbit.h>
 
 #if 0
 #define dprintf printf
@@ -106,18 +106,62 @@ out:
 	return hl;
 }
 
+static struct cb_tree vhosts;
+static const char *vhosts_dirname;
+static webroot_t vdefault;
+
 static void vhost_add(void *priv, const char *name, unsigned isdir)
 {
+	char fn[strlen(vhosts_dirname) + strlen(name) + 2];
+	void **pptr;
+	webroot_t w;
+
 	if ( isdir )
 		return;
-	printf("add vhost: %s\n", name);
+
+	snprintf(fn, sizeof(fn), "%s/%s", vhosts_dirname, name);
+	printf("add vhost: %s -> %s\n", name, fn);
+
+	w = webroot_open(fn);
+	if ( NULL == w )
+		return;
+
+	if ( !strcmp(name, "__default__") ) {
+		webroot_close(vdefault);
+		vdefault = w;
+		return;
+	}
+
+	if ( !cb_insert(&vhosts, name, &pptr) )
+		return;
+
+	if ( *pptr ) {
+		printf(" - closing old\n");
+		webroot_close(*pptr);
+	}
+
+	*pptr = w;
 }
 
 static void vhost_del(void *priv, const char *name, unsigned isdir)
 {
+	webroot_t w;
+
 	if ( isdir )
 		return;
 	printf("del vhost: %s\n", name);
+
+	if ( !strcmp(name, "__default__") ) {
+		webroot_close(vdefault);
+		vdefault = NULL;
+		return;
+	}
+
+	if ( !cb_delete(&vhosts, name, (void **)&w) ) {
+		printf(" - not found\n");
+	}
+
+	webroot_close(w);
 }
 
 static void server_quit(void *priv)
@@ -139,6 +183,8 @@ static int setup_vhosts(struct iothread *t, const char *dirname)
 	struct dirent *de;
 	nbnotify_t n;
 	DIR *dir;
+
+	vhosts_dirname = dirname;
 
 	dir = opendir(dirname);
 	if ( NULL == dir ) {
