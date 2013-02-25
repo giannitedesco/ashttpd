@@ -50,6 +50,7 @@ HTTPD_OBJ = httpd.o \
 		nbio-eventfd.o \
 		nbio-inotify.o \
 		critbit.o \
+		vhosts.o \
 		hgang.o \
 		vec.o \
 		os.o

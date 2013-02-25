@@ -14,6 +14,7 @@ struct watch_ops {
 };
 
 _private nbnotify_t nbio_inotify_new(struct iothread *t);
+_private void nbio_notify_free(struct iothread *t, nbnotify_t n);
 _private int nbio_inotify_watch_dir(nbnotify_t n, const char *dir,
 					const struct watch_ops *ops,
 					void *priv);

@@ -43,6 +43,10 @@ struct http_listener {
 	webroot_t l_webroot;
 };
 
+typedef struct _vhosts *vhosts_t;
+struct _vhosts *vhosts_new(struct iothread *t, const char *dirname);
+webroot_t vhosts_lookup(vhosts_t v, const char *host);
+
 /* webroot API */
 _private webroot_t webroot_open(const char *fn);
 _private int webroot_get_fd(webroot_t r);

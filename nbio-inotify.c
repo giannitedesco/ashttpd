@@ -208,6 +208,13 @@ nbnotify_t nbio_inotify_new(struct iothread *t)
 	return n;
 }
 
+void nbio_notify_free(struct iothread *t, nbnotify_t n)
+{
+	if ( n ) {
+		nbio_del(t, &n->n_io);
+	}
+}
+
 int nbio_inotify_watch_dir(nbnotify_t n, const char *dir,
 					const struct watch_ops *ops,
 					void *priv)
