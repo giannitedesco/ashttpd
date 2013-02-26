@@ -138,7 +138,7 @@ static void dispatch(struct _nbnotify *n, const struct inotify_event *ev,
 	dprintf("\n");
 }
 
-static void efd_read(struct iothread *t, struct nbio *nbio)
+static void ifd_read(struct iothread *t, struct nbio *nbio)
 {
 	struct _nbnotify *n = (struct _nbnotify *)nbio;
 	uint8_t buf[4096], *ptr, *end;
@@ -147,8 +147,16 @@ static void efd_read(struct iothread *t, struct nbio *nbio)
 
 again:
 	ret = read(n->n_io.fd, buf, sizeof(buf));
-	if ( ret <= 0 )
+	if ( ret < 0 ) {
+		if ( errno == EAGAIN ) {
+			nbio_inactive(t, &n->n_io, NBIO_READ);
+			return;
+		}
+		fprintf(stderr, "inotify_read: %s\n", os_err());
 		return;
+	}else if ( ret == 0 ) {
+		return;
+	}
 
 	end = buf + ret;
 
@@ -162,7 +170,7 @@ again:
 	goto again;
 }
 
-static void efd_dtor(struct iothread *t, struct nbio *nbio)
+static void ifd_dtor(struct iothread *t, struct nbio *nbio)
 {
 	struct _nbnotify *n = (struct _nbnotify *)nbio;
 	unsigned int i;
@@ -179,8 +187,8 @@ static void efd_dtor(struct iothread *t, struct nbio *nbio)
 }
 
 static const struct nbio_ops ops = {
-	.read = efd_read,
-	.dtor = efd_dtor,
+	.read = ifd_read,
+	.dtor = ifd_dtor,
 };
 
 nbnotify_t nbio_inotify_new(struct iothread *t)
