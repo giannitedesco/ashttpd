@@ -147,7 +147,7 @@ int fobuf_close(fobuf_t b)
 		ret = 0;
 	}
 
-	if ( !close(b->fd) ) {
+	if ( close(b->fd) ) {
 		//ERR("close: %s", os_err());
 		ret = 0;
 	}
