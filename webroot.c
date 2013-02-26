@@ -149,6 +149,7 @@ webroot_t webroot_open(const char *fn)
 		goto out_unmap;
 	}
 
+	r->r_ref = 1;
 	goto out; /* success */
 
 out_unmap:
@@ -226,11 +227,23 @@ int webroot_find(webroot_t r, const struct ro_vec *uri,
 	return 1;
 }
 
-void webroot_close(webroot_t r)
+static void dtor(webroot_t r)
 {
 	if ( r ) {
 		munmap((void *)r->r_map, r->r_map_sz);
 		close(r->r_fd);
 		free(r);
 	}
+}
+
+void webroot_unref(webroot_t r)
+{
+	if ( r && !--r->r_ref )
+		dtor(r);
+}
+
+webroot_t webroot_ref(webroot_t r)
+{
+	r->r_ref++;
+	return r;
 }

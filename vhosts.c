@@ -48,7 +48,7 @@ static void vhost_add(void *priv, const char *name, unsigned isdir)
 		return;
 
 	if ( !strcmp(name, "__default__") ) {
-		webroot_close(v->vdefault);
+		webroot_unref(v->vdefault);
 		v->vdefault = w;
 		return;
 	}
@@ -58,7 +58,7 @@ static void vhost_add(void *priv, const char *name, unsigned isdir)
 
 	if ( *pptr ) {
 		printf(" - closing old\n");
-		webroot_close(*pptr);
+		webroot_unref(*pptr);
 	}
 
 	*pptr = w;
@@ -74,7 +74,7 @@ static void vhost_del(void *priv, const char *name, unsigned isdir)
 	printf("del vhost: %s\n", name);
 
 	if ( !strcmp(name, "__default__") ) {
-		webroot_close(v->vdefault);
+		webroot_unref(v->vdefault);
 		v->vdefault = NULL;
 		return;
 	}
@@ -83,7 +83,7 @@ static void vhost_del(void *priv, const char *name, unsigned isdir)
 		printf(" - not found\n");
 	}
 
-	webroot_close(w);
+	webroot_unref(w);
 }
 
 static void server_quit(void *priv)
@@ -103,7 +103,7 @@ static const struct watch_ops vhost_ops = {
 static void dtor(void *priv)
 {
 	webroot_t w = priv;
-	webroot_close(w);
+	webroot_unref(w);
 }
 
 struct _vhosts *vhosts_new(struct iothread *t, const char *dirname)
@@ -161,8 +161,9 @@ webroot_t vhosts_lookup(vhosts_t v, const char *host)
 {
 	webroot_t w;
 
-	if ( cb_contains(&v->vhosts, host, (void **)&w) )
+	if ( cb_contains(&v->vhosts, host, (void **)&w) ) {
 		return w;
+	}
 
 	return v->vdefault;
 }

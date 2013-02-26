@@ -3,6 +3,7 @@
 
 struct _webroot {
 	int r_fd;
+	unsigned int r_ref;
 	const void *r_map;
 	size_t r_map_sz;
 

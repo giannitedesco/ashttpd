@@ -34,7 +34,23 @@ To build a webroot run mkroot, for example:
  $ ./mkroot /var/www www.webroot
 
 Then the server is run with:
- $ ./httpd www.webroot
+ $ ./httpd path-to-vhosts-dir
+
+The dir is scanned for webroots, the filename will be the vhost name.
+You will probably want to store the webroots in one dir, and symlink
+them in to the vhosts dir like this:
+
+ $ ln -sf /path/to/www.webroot ./vhosts/www.example.com
+
+Or to replace the default webroot:
+
+ $ ln -sf /path/to/defaultpages.webroot ./vhosts/\_\_default\_\_
+
+Note that these webroot updates do not require the server to be restarted.
+You can dynamically add and remove websites and/or atomically replace webroots
+on the fly.
+
+## I/O Models
 
 The httpd binary takes one (optional) commandline argument which selects the
 I/O model to be used:
@@ -47,6 +63,6 @@ I/O model to be used:
  
 For example:
 
- $ ./httpd www.webroot sync
+ $ ./httpd ./vhosts sync
 
 If you like and use this software then press [<img src="http://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif">](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=gianni%40scaramanga%2eco%2euk&lc=GB&item_name=Gianni%20Tedesco&item_number=scaramanga&currency_code=GBP&bn=PP%2dDonationsBF%3abtn_donateCC_LG%2egif%3aNonHosted) to donate towards its development progress and email me to say what features you would like added.

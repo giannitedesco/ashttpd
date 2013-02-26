@@ -30,6 +30,7 @@ struct _http_conn {
 	unsigned short	h_io_state;
 
 	struct http_listener *h_owner;
+	webroot_t	h_webroot;
 
 	const uint8_t	*h_rptr;
 	struct http_buf	*h_req;
@@ -148,7 +149,7 @@ size_t http_conn_data(http_conn_t h, int *fd, off_t *off)
 	assert(h->h_state == HTTP_CONN_DATA || h->h_state == HTTP_CONN_HEADER);
 
 	if ( fd )
-		*fd = webroot_get_fd(h->h_owner->l_webroot);
+		*fd = webroot_get_fd(h->h_webroot);
 	if ( off )
 		*off = h->h_data_off;
 	return h->h_data_len;
@@ -169,6 +170,8 @@ void http_conn_data_complete(struct iothread *t, http_conn_t h)
 	assert(0 == h->h_data_len);
 	h->h_state = HTTP_CONN_REQUEST;
 	nbio_set_wait(t, &h->h_nbio, NBIO_READ);
+	webroot_unref(h->h_webroot);
+	h->h_webroot = NULL;
 	if ( h->h_conn_close )
 		http_kill(t, h);
 }
@@ -382,6 +385,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	struct tm tm;
 	char etag[41];
 	char mtime[128];
+	char hbuf[r->host.v_len + 1];
 	time_t mt;
 	struct nads nads;
 	uint8_t *ptr;
@@ -403,7 +407,13 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	search_uri.v_ptr = (uint8_t *)nads.uri;
 	search_uri.v_len = strlen(nads.uri);
 
-	if ( !webroot_find(h->h_owner->l_webroot, &search_uri, &n) ) {
+	snprintf(hbuf, sizeof(hbuf), "%.*s", (int)r->host.v_len, r->host.v_ptr);
+	h->h_webroot = vhosts_lookup(h->h_owner->l_vhosts, hbuf);
+	if ( NULL == h->h_webroot ) {
+		return response_403(t, h);
+	}
+
+	if ( !webroot_find(h->h_webroot, &search_uri, &n) ) {
 #if 0
 		h->h_data_off = obj404_f_ofs;
 		h->h_data_len = obj404_f_len;
@@ -493,6 +503,8 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	buf_done_write(h->h_res, len);
 	if ( head )
 		h->h_data_len = 0;
+	else
+		webroot_ref(h->h_webroot);
 	return 1;
 }
 

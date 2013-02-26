@@ -213,7 +213,7 @@ static int do_fsck(const char *fn)
 
 	dump_hist(hist, max_len);
 	dump_fanout_hist(hist2, 0x100);
-	webroot_close(r);
+	webroot_unref(r);
 	free(hist);
 	free(hist2);
 	return 1;

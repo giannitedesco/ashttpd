@@ -79,7 +79,7 @@ static struct http_fio *io_model(const char *name)
 
 static struct http_listener *http_listen(struct iothread *t,
 					uint32_t addr, uint16_t port,
-					webroot_t root)
+					vhosts_t vhosts)
 {
 	struct http_listener *hl;
 
@@ -93,7 +93,7 @@ static struct http_listener *http_listen(struct iothread *t,
 	if ( NULL == hl->l_listen )
 		goto out_free;
 
-	hl->l_webroot = root;
+	hl->l_vhosts = vhosts;
 	list_add_tail(&hl->l_list, &listeners);
 	printf("http: Listening on %s:%d\n",
 		inet_ntoa((struct in_addr){addr}), port);
@@ -109,15 +109,15 @@ out:
 
 int main(int argc, char **argv)
 {
-	static webroot_t webroot;
-	const char * webroot_fn;
+	const char *vhosts_dir;
 	struct iothread iothread;
+	vhosts_t vhosts;
 
-	webroot_fn = (argc > 1) ? argv[1] : "webroot.objdb";
+	vhosts_dir = (argc > 1) ? argv[1] : "./vhosts";
 	fio_current = io_model((argc > 2) ? argv[2] : NULL);
 
 	printf("data: %s model\n", fio_current->label);
-	printf("webroot: %s\n", webroot_fn);
+	printf("webroot: %s\n", vhosts_dir);
 
 	if ( !nbio_init(&iothread, NULL) )
 		return EXIT_FAILURE;
@@ -126,24 +126,19 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 
-	if ( !vhosts_new(&iothread, "./vhosts") )
+	vhosts = vhosts_new(&iothread, vhosts_dir);
+	if ( NULL == vhosts )
 		return EXIT_FAILURE;
 
-	webroot = webroot_open(webroot_fn);
-	if ( NULL == webroot ) {
-		fprintf(stderr, "webroot: %s: %s\n", webroot_fn, os_err());
-		return EXIT_FAILURE;
-	}
-
-	http_listen(&iothread, 0, 80, webroot);
-	http_listen(&iothread, 0, 1234, webroot);
+	http_listen(&iothread, 0, 80, vhosts);
+	http_listen(&iothread, 0, 1234, vhosts);
 
 	do {
 		nbio_pump(&iothread, -1);
 	}while ( !list_empty(&iothread.active) );
 
 	nbio_fini(&iothread);
-	webroot_close(webroot);
+	//vhosts_free(vhosts);
 
 	return EXIT_SUCCESS;
 }
