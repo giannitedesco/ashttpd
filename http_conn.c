@@ -629,6 +629,8 @@ static void http_dtor(struct iothread *t, struct nbio *n)
 {
 	struct _http_conn *h = (struct _http_conn *)n;
 	assert(h->h_state = HTTP_CONN_DEAD);
+	webroot_unref(h->h_webroot);
+	hgang_return(conns, n);
 }
 
 static const struct nbio_ops http_ops = {
