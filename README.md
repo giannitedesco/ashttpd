@@ -22,6 +22,11 @@ The main linux specific bits are just performance enhancements: accept4(),
 fallocate(), epoll, (no kqueue module for example, but it can fallback to
 poll or be written by a suitably motivated individual).
 
+The libaio library is required for io\_async, there's no POSIX AIO support
+at the moment because there's no way to integrate its mainloop with poll.
+
+Also libmagic is needed for mkroot to determine the mime types of files.
+
 ## RUNNING
 
 To build a webroot run mkroot, for example:
