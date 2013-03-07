@@ -128,10 +128,10 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 			}
 			break;
 		case 1:
-			hv[i].v_len++;
 			switch(*cur) {
 			case ' ':
 				if ( i<2 ) {
+					hv[i].v_len = cur - hv[i].v_ptr;
 					state = 0;
 					i++;
 				}
@@ -141,6 +141,7 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 					hv[i].v_len--;
 				k.v_ptr = (void *)cur + 1;
 				k.v_len = 0;
+				hv[i].v_len = cur - hv[i].v_ptr;
 				state = 2;
 				ret = (cur - p) + 1;
 				break;
@@ -148,13 +149,13 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 			break;
 		case 2:
 			if ( *cur == ':' ) {
+				k.v_len = (cur - k.v_ptr);
 				state = 3;
 				break;
 			}else if ( *cur == '\n' ) {
 				ret = (cur - p) + 1;
 				cur = end;
 			}
-			k.v_len++;
 			break;
 		case 3:
 			if ( *cur != ' ' ) {
@@ -164,8 +165,8 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 			}
 			break;
 		case 4:
-			v.v_len++;
 			if ( *cur == '\n' ) {
+				v.v_len = (cur - v.v_ptr);
 				if ( v.v_len && *(cur-1) == '\r' )
 					v.v_len--;
 				dispatch_hdr(d + 3, num_dcb - 3, &k, &v);
