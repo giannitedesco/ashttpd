@@ -377,6 +377,23 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 	return 1;
 }
 
+static void print_etag(char buf[ETAG_SZ * 2 + 1], uint8_t etag[ETAG_SZ])
+{
+	unsigned int i;
+	char *ptr;
+
+	for(i = 0, ptr = buf; i < ETAG_SZ; i++, ptr += 2) {
+		static const char hex[] = "01234567890abcdef";
+		uint8_t hi = etag[i] >> 4;
+		uint8_t lo = etag[i] & 0xf;
+		ptr[0] = hex[hi];
+		ptr[1] = hex[lo];
+	}
+
+	*ptr = '\0';
+}
+
+uint64_t reqs;
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
 {
@@ -400,14 +417,15 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	nads.buf_len = r->uri.v_len;
 	nads_normalize(&nads);
 
-	dprintf("GET %.*s -> '%s' '%s'\n",
+	snprintf(hbuf, sizeof(hbuf), "%.*s", (int)r->host.v_len, r->host.v_ptr);
+
+	dprintf("GET %.*s -> '%s' '%s' (host %s)\n",
 		(int)r->uri.v_len, r->uri.v_ptr,
-		nads.uri, nads.query);
+		nads.uri, nads.query, hbuf);
 
 	search_uri.v_ptr = (uint8_t *)nads.uri;
 	search_uri.v_len = strlen(nads.uri);
 
-	snprintf(hbuf, sizeof(hbuf), "%.*s", (int)r->host.v_len, r->host.v_ptr);
 	h->h_webroot = vhosts_lookup(h->h_owner->l_vhosts, hbuf);
 	if ( NULL == h->h_webroot ) {
 		return response_403(t, h);
@@ -434,18 +452,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
-	snprintf(etag, sizeof(etag), "%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x"
-			"%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x%.2x",
-			n.u.data.f_etag[0], n.u.data.f_etag[1],
-			n.u.data.f_etag[2], n.u.data.f_etag[3],
-			n.u.data.f_etag[4], n.u.data.f_etag[5],
-			n.u.data.f_etag[6], n.u.data.f_etag[7],
-			n.u.data.f_etag[8], n.u.data.f_etag[9],
-			n.u.data.f_etag[10], n.u.data.f_etag[11],
-			n.u.data.f_etag[12], n.u.data.f_etag[13],
-			n.u.data.f_etag[14], n.u.data.f_etag[15],
-			n.u.data.f_etag[16], n.u.data.f_etag[17],
-			n.u.data.f_etag[18], n.u.data.f_etag[19]);
+	print_etag(etag, n.u.data.f_etag);
 
 	if ( r->etag.v_len == 40 ) {
 		dprintf("conditional query: %.*s vs %s: ",
@@ -500,6 +507,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		return 0;
 	}
 
+	reqs++;
 	buf_done_write(h->h_res, len);
 	if ( head )
 		h->h_data_len = 0;
@@ -663,8 +671,14 @@ void http_conn(struct iothread *t, int s, void *priv)
 	return;
 }
 
+__attribute__((noreturn)) static void sigint(int sig)
+{
+	printf("\n%"PRIu64" reqs handled\n", reqs);
+	exit(1);
+}
 int http_proto_init(struct iothread *t)
 {
+	signal(SIGINT, sigint);
 	conns = hgang_new(sizeof(struct _http_conn), 0);
 	if ( NULL == conns ) {
 		fprintf(stderr, "conns: %s\n", os_err());
