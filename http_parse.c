@@ -111,7 +111,7 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 	struct ro_vec hv[3]; /* method, url, proto */
 	struct ro_vec k,v;
 	int i = 0;
-	int state = 0;
+	void *state = &&state0;
 	int ret = 0;
 
 	hv[0].v_len = 0;
@@ -119,64 +119,61 @@ size_t http_decode_buf(struct http_hcb *d, size_t num_dcb,
 	hv[2].v_len = 0;
 
 	for(cur = p; cur < end; cur++) {
-		switch ( state ) {
-		case 0:
-			if ( *cur != ' ' ) {
-				state = 1;
-				hv[i].v_ptr = (void *)cur;
-				hv[i].v_len = 0;
-			}
-			break;
-		case 1:
-			switch(*cur) {
-			case ' ':
-				if ( i<2 ) {
-					hv[i].v_len = cur - hv[i].v_ptr;
-					state = 0;
-					i++;
-				}
-				break;
-			case '\n':
-				if ( hv[i].v_len && *(cur - 1) == '\r' )
-					hv[i].v_len--;
-				k.v_ptr = (void *)cur + 1;
-				k.v_len = 0;
+		goto *state;
+state0:
+		if ( *cur != ' ' ) {
+			state = &&state1;
+			hv[i].v_ptr = (void *)cur;
+			hv[i].v_len = 0;
+		}
+		continue;
+state1:
+		switch(*cur) {
+		case ' ':
+			if ( i<2 ) {
 				hv[i].v_len = cur - hv[i].v_ptr;
-				state = 2;
-				ret = (cur - p) + 1;
-				break;
+				state = &&state0;
+				i++;
 			}
 			break;
-		case 2:
-			if ( *cur == ':' ) {
-				k.v_len = (cur - k.v_ptr);
-				state = 3;
-				break;
-			}else if ( *cur == '\n' ) {
-				ret = (cur - p) + 1;
-				cur = end;
-			}
-			break;
-		case 3:
-			if ( *cur != ' ' ) {
-				v.v_ptr = (void *)cur;
-				v.v_len = 0;
-				state = 4;
-			}
-			break;
-		case 4:
-			if ( *cur == '\n' ) {
-				v.v_len = (cur - v.v_ptr);
-				if ( v.v_len && *(cur-1) == '\r' )
-					v.v_len--;
-				dispatch_hdr(d + 3, num_dcb - 3, &k, &v);
-				k.v_ptr = (void *)cur + 1;
-				k.v_len = 0;
-				state = 2;
-				break;
-			}
+		case '\n':
+			if ( hv[i].v_len && *(cur - 1) == '\r' )
+				hv[i].v_len--;
+			k.v_ptr = (void *)cur + 1;
+			k.v_len = 0;
+			hv[i].v_len = cur - hv[i].v_ptr;
+			state = &&state2;
+			ret = (cur - p) + 1;
 			break;
 		}
+		continue;
+state2:
+		if ( *cur == ':' ) {
+			k.v_len = (cur - k.v_ptr);
+			state = &&state3;
+		}else if ( *cur == '\n' ) {
+			ret = (cur - p) + 1;
+			cur = end;
+		}
+		continue;
+state3:
+		if ( *cur != ' ' ) {
+			v.v_ptr = (void *)cur;
+			v.v_len = 0;
+			state = &&state4;
+		}
+		continue;
+state4:
+		if ( *cur == '\n' ) {
+			v.v_len = (cur - v.v_ptr);
+			if ( v.v_len && *(cur-1) == '\r' )
+				v.v_len--;
+			dispatch_hdr(d + 3, num_dcb - 3, &k, &v);
+			k.v_ptr = (void *)cur + 1;
+			k.v_len = 0;
+			state = &&state2;
+		}
+		continue;
 	}
 
 	if ( !hv[0].v_len || !hv[1].v_len )
