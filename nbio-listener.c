@@ -40,6 +40,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	socklen_t salen = sizeof(sa);
 	int fd;
 
+again:
 #if HAVE_ACCEPT4
 	fd = accept4(l->io.fd, (struct sockaddr *)&sa, &salen,
 			SOCK_NONBLOCK|SOCK_CLOEXEC);
@@ -78,6 +79,7 @@ static void listener_read(struct iothread *t, struct nbio *io)
 	 * the end of the active queue
 	 */
 	nbio_set_wait(t, io, NBIO_READ);
+	goto again;
 }
 
 static void listener_dtor(struct iothread *t, struct nbio *io)
