@@ -161,7 +161,7 @@ webroot_t vhosts_lookup(vhosts_t v, const char *host)
 {
 	webroot_t w;
 
-	if ( cb_contains(&v->vhosts, host, (void **)&w) ) {
+	if ( host && cb_contains(&v->vhosts, host, (void **)&w) ) {
 		return w;
 	}
 
