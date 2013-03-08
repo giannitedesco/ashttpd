@@ -377,7 +377,7 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 	return 1;
 }
 
-static void print_etag(char buf[ETAG_SZ * 2 + 1], uint8_t etag[ETAG_SZ])
+static void print_etag(char buf[ETAG_SZ * 2 + 1], const uint8_t etag[ETAG_SZ])
 {
 	unsigned int i;
 	char *ptr;
@@ -393,8 +393,8 @@ static void print_etag(char buf[ETAG_SZ * 2 + 1], uint8_t etag[ETAG_SZ])
 	*ptr = '\0';
 }
 
-#define HTTP_TIME_BUF 45
-static void print_time(char buf[HTTP_TIME_BUF], struct tm *tm)
+#define HTTP_TIME_BUF 44
+static int print_time(char buf[HTTP_TIME_BUF + 1], struct tm *tm)
 {
 	static const char * const dayofweek[] = {
 		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
@@ -404,7 +404,7 @@ static void print_time(char buf[HTTP_TIME_BUF], struct tm *tm)
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
 	//strftime(mtime, sizeof(mtime), "%a, %d %b %Y %H:%M:%S GMT", &tm);
-	snprintf(buf, HTTP_TIME_BUF,
+	return snprintf(buf, HTTP_TIME_BUF + 1,
 		"%s, %02d %s %4d %02d:%02d:%02d GMT",
 		dayofweek[tm->tm_wday],
 		tm->tm_mday,
@@ -415,21 +415,79 @@ static void print_time(char buf[HTTP_TIME_BUF], struct tm *tm)
 		tm->tm_sec);
 }
 
+struct resp {
+	uint8_t *r_ptr;
+	uint8_t *r_end;
+	size_t r_len;
+};
+
+static void resp_begin(struct _http_conn *h, struct resp *r)
+{
+	size_t sz;
+	r->r_ptr = buf_write(h->h_res, &sz);
+	r->r_end = r->r_ptr + sz;
+	r->r_len = 0;
+}
+
+#define resp_static_string(r, s) resp_string(r, (uint8_t *)s, strlen(s))
+static void resp_string(struct resp *r, const uint8_t *s, size_t len)
+{
+	assert(r->r_ptr + len <= r->r_end);
+	memcpy(r->r_ptr, s, len);
+	r->r_ptr += len;
+	r->r_len += len;
+}
+
+static void resp_u64(struct resp *r, uint64_t u)
+{
+	int ret;
+	ret = snprintf((char *)r->r_ptr, r->r_end - r->r_ptr, "%"PRIu64, u);
+	assert(r->r_ptr + ret <= r->r_end);
+	r->r_ptr += ret;
+	r->r_len += ret;
+}
+
+static void resp_etag(struct resp *r, const uint8_t etag[ETAG_SZ])
+{
+	assert(r->r_ptr + ETAG_SZ * 2 + 1 <= r->r_end);
+	print_etag((char *)r->r_ptr, etag);
+	r->r_ptr += ETAG_SZ * 2;
+	r->r_len += ETAG_SZ * 2;
+}
+
+static void resp_time(struct resp *r, struct tm *tm)
+{
+	int len;
+	assert(r->r_ptr + HTTP_TIME_BUF <= r->r_end);
+	len = print_time((char *)r->r_ptr, tm);
+	len = (len < 0) ? 0 : len;
+	r->r_ptr += len;
+	r->r_len += len;
+}
+
+static void resp_http_code(struct resp *r, unsigned code)
+{
+	assert(r->r_ptr + 3 <= r->r_end);
+	r->r_ptr[0] = '0' + ((code / 100) % 10);
+	r->r_ptr[1] = '0' + ((code / 10) % 10);
+	r->r_ptr[2] = '0' + (code % 10);
+	r->r_ptr += 3;
+	r->r_len += 3;
+}
+
 uint64_t reqs;
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
 {
 	struct webroot_name n;
 	struct ro_vec search_uri = r->uri;
+	struct resp res;
 	struct tm tm;
 	char etag[41];
-	char mtime[HTTP_TIME_BUF];
 	char hbuf[r->host.v_len + 1];
 	time_t mt;
 	struct nads nads;
-	uint8_t *ptr;
-	size_t sz;
-	int len, hit = 0;
+	int hit = 0;
 
 	if ( search_uri.v_len > 1 &&
 		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
@@ -500,37 +558,47 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		}
 	}
 
-	mt = n.u.data.f_mtime;
-	gmtime_r(&mt, &tm);
-	print_time(mtime, &tm);
-
-	ptr = buf_write(h->h_res, &sz);
-	len = snprintf((char *)ptr, sz,
-			"HTTP/1.1 %u %s\r\n"
-			"Content-Type: %.*s\r\n"
-			"Content-Length: %zu\r\n"
-			"Connection: %s\r\n"
-			"ETag: %s\r\n"
-			"Last-Modified: %s\r\n"
-			"Server: ashttpd\r\n"
-			"\r\n",
-			n.code,
-			(n.code == HTTP_FOUND) ? "OK": "Not Found",
-			(int)n.mime_type.v_len,
-			n.mime_type.v_ptr,
-			h->h_data_len,
-			(h->h_conn_close) ? "Close" : "Keep-Alive",
-			etag,
-			mtime);
-	if ( len < 0 )
-		len = 0;
-	if ( (size_t)len == sz ) {
-		printf("Truncated header...\n");
-		return 0;
+	resp_begin(h, &res);
+	resp_static_string(&res, "HTTP/1.1 ");
+	resp_http_code(&res, n.code);
+	switch(n.code) {
+	case 200:
+		resp_static_string(&res, " OK");
+		break;
+	case HTTP_NOT_MODIFIED:
+		resp_static_string(&res, " Not Modified");
+		break;
+	case 404:
+	default:
+		resp_static_string(&res, " Not Found");
+		break;
 	}
 
+	resp_static_string(&res, "\r\nContent-Type: ");
+	resp_string(&res, n.mime_type.v_ptr, n.mime_type.v_len);
+
+	resp_static_string(&res, "\r\nContent-Length: ");
+	resp_u64(&res, h->h_data_len);
+
+	resp_static_string(&res, "\r\nConnection: ");
+	if ( h->h_conn_close ) {
+		resp_static_string(&res, "Close");
+	}else{
+		resp_static_string(&res, "Keep-Alive");
+	}
+
+	resp_static_string(&res, "\r\nETag: ");
+	resp_etag(&res, n.u.data.f_etag);
+
+	resp_static_string(&res, "\r\nLast-Modified: ");
+	mt = n.u.data.f_mtime;
+	gmtime_r(&mt, &tm);
+	resp_time(&res, &tm);
+
+	resp_static_string(&res, "\r\nServer: ashttpd\r\n\r\n");
+
 	reqs++;
-	buf_done_write(h->h_res, len);
+	buf_done_write(h->h_res, res.r_len);
 	if ( head )
 		h->h_data_len = 0;
 	else
