@@ -13,14 +13,14 @@ struct _cb_node {
 	union {
 		struct {
 			struct _cb_node *child[2];
+			uint32_t byte;
+			uint8_t otherbits;
 		}internal;
 		struct {
 			char *key;
 			void *val;
 		}leaf;
 	}u;
-	uint32_t byte;
-	uint8_t otherbits;
 	uint8_t is_leaf;
 };
 
@@ -36,9 +36,9 @@ int cb_contains(struct cb_tree * t, const char *u, void **ppv)
 	for(q = t->root; !q->is_leaf; q = q->u.internal.child[direction]) {
 		uint8_t c = 0;
 
-		if (q->byte < ulen)
-			c = u[q->byte];
-		direction = (1 + (q->otherbits | c)) >> 8;
+		if (q->u.internal.byte < ulen)
+			c = u[q->u.internal.byte];
+		direction = (1 + (q->u.internal.otherbits | c)) >> 8;
 	}
 
 	if ( strcmp(u, q->u.leaf.key) )
@@ -82,10 +82,10 @@ int cb_insert(struct cb_tree *t, const char *u, void ***pppv)
 	for(q = t->root; !q->is_leaf; q = q->u.internal.child[direction]) {
 		uint8_t c = 0;
 
-		if (q->byte < ulen)
-			c = u[q->byte];
+		if (q->u.internal.byte < ulen)
+			c = u[q->u.internal.byte];
 
-		direction = (1 + (q->otherbits | c)) >> 8;
+		direction = (1 + (q->u.internal.otherbits | c)) >> 8;
 	}
 
 	for (newbyte = 0; newbyte < ulen; ++newbyte) {
@@ -131,8 +131,8 @@ different_byte_found:
 		return 0;
 	}
 
-	newnode->byte = newbyte;
-	newnode->otherbits = newotherbits;
+	newnode->u.internal.byte = newbyte;
+	newnode->u.internal.otherbits = newotherbits;
 	newnode->u.internal.child[1 - newdirection] = newleaf;
 	newnode->is_leaf = 0;
 
@@ -141,14 +141,15 @@ different_byte_found:
 		q = *wherep;
 		if ( q->is_leaf )
 			break;
-		if (q->byte > newbyte)
+		if (q->u.internal.byte > newbyte)
 			break;
-		if (q->byte == newbyte && q->otherbits > newotherbits)
+		if (q->u.internal.byte == newbyte &&
+				q->u.internal.otherbits > newotherbits)
 			break;
 		uint8_t c = 0;
-		if (q->byte < ulen)
-			c = u[q->byte];
-		const int direction = (1 + (q->otherbits | c)) >> 8;
+		if (q->u.internal.byte < ulen)
+			c = u[q->u.internal.byte];
+		const int direction = (1 + (q->u.internal.otherbits | c)) >> 8;
 		wherep = &q->u.internal.child[direction];
 	}
 
@@ -175,9 +176,9 @@ int cb_delete(struct cb_tree * t, const char *u, void **ppv)
 		uint8_t c = 0;
 		whereq = wherep;
 		q = p;
-		if (q->byte < ulen)
-			c = u[q->byte];
-		direction = (1 + (q->otherbits | c)) >> 8;
+		if (q->u.internal.byte < ulen)
+			c = u[q->u.internal.byte];
+		direction = (1 + (q->u.internal.otherbits | c)) >> 8;
 		wherep = q->u.internal.child + direction;
 		p = *wherep;
 	}
@@ -262,11 +263,11 @@ cb_allprefixed(cb_tree * t, const char *prefix,
 	while (1 & (intptr_t) p) {
 		_cb_node *q = (void *)(p - 1);
 		uint8_t c = 0;
-		if (q->byte < ulen)
-			c = ubytes[q->byte];
-		const int direction = (1 + (q->otherbits | c)) >> 8;
+		if (q->u.internal.byte < ulen)
+			c = ubytes[q->u.internal.byte];
+		const int direction = (1 + (q->u.internal.otherbits | c)) >> 8;
 		p = q->child[direction];
-		if (q->byte < ulen)
+		if (q->u.internal.byte < ulen)
 			top = p;
 	}
 
