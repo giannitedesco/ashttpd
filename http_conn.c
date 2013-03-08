@@ -393,6 +393,28 @@ static void print_etag(char buf[ETAG_SZ * 2 + 1], uint8_t etag[ETAG_SZ])
 	*ptr = '\0';
 }
 
+#define HTTP_TIME_BUF 45
+static void print_time(char buf[HTTP_TIME_BUF], struct tm *tm)
+{
+	static const char * const dayofweek[] = {
+		"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+	};
+	static const char * const monthofyear[] = {
+		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+	};
+	//strftime(mtime, sizeof(mtime), "%a, %d %b %Y %H:%M:%S GMT", &tm);
+	snprintf(buf, HTTP_TIME_BUF,
+		"%s, %02d %s %4d %02d:%02d:%02d GMT",
+		dayofweek[tm->tm_wday],
+		tm->tm_mday,
+		monthofyear[tm->tm_mon - 1],
+		tm->tm_year,
+		tm->tm_hour,
+		tm->tm_min,
+		tm->tm_sec);
+}
+
 uint64_t reqs;
 static int handle_get(struct iothread *t, struct _http_conn *h,
 			struct http_request *r, int head)
@@ -401,7 +423,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	struct ro_vec search_uri = r->uri;
 	struct tm tm;
 	char etag[41];
-	char mtime[128];
+	char mtime[HTTP_TIME_BUF];
 	char hbuf[r->host.v_len + 1];
 	time_t mt;
 	struct nads nads;
@@ -480,7 +502,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 
 	mt = n.u.data.f_mtime;
 	gmtime_r(&mt, &tm);
-	strftime(mtime, sizeof(mtime), "%a, %d %b %Y %H:%M:%S GMT", &tm);
+	print_time(mtime, &tm);
 
 	ptr = buf_write(h->h_res, &sz);
 	len = snprintf((char *)ptr, sz,
@@ -490,7 +512,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 			"Connection: %s\r\n"
 			"ETag: %s\r\n"
 			"Last-Modified: %s\r\n"
-			"Server: ashttpd, experimental l33tness\r\n"
+			"Server: ashttpd\r\n"
 			"\r\n",
 			n.code,
 			(n.code == HTTP_FOUND) ? "OK": "Not Found",
