@@ -10,10 +10,10 @@ http_ver_t http_proto_version(struct ro_vec *str)
 	const uint8_t *s = str->v_ptr;
 	int maj, min;
 
-	if ( str->v_ptr == NULL )
+	if ( str->v_len != 8 ) /* sizeof("HTTP/X.Y") */
 		return HTTP_VER_UNKNOWN;
 
-	if ( str->v_len != 8 ) /* sizeof("HTTP/X.Y") */
+	if ( str->v_ptr == NULL )
 		return HTTP_VER_UNKNOWN;
 
 	if ( memcmp(s, "HTTP/", 5) )
