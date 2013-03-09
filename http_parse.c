@@ -130,18 +130,18 @@ state0:
 state1:
 		switch(*cur) {
 		case ' ':
-			if ( i<2 ) {
+			if ( i < 2 ) {
 				hv[i].v_len = cur - hv[i].v_ptr;
 				state = &&state0;
 				i++;
 			}
 			break;
 		case '\n':
+			hv[i].v_len = cur - hv[i].v_ptr;
 			if ( hv[i].v_len && *(cur - 1) == '\r' )
 				hv[i].v_len--;
 			k.v_ptr = (void *)cur + 1;
 			k.v_len = 0;
-			hv[i].v_len = cur - hv[i].v_ptr;
 			state = &&state2;
 			ret = (cur - p) + 1;
 			break;
