@@ -317,7 +317,7 @@ again:
 
 int os_sigpipe_ignore(void)
 {
-	if ( signal(SIGPIPE, SIG_IGN) ) {
+	if ( SIG_ERR == signal(SIGPIPE, SIG_IGN) ) {
 		fprintf(stderr, "signal: %s\n", os_err());
 		return 0;
 	}
