@@ -9,8 +9,9 @@ It is (yet another) simple http daemon for serving up static content. The main
 aims are simplicity and efficiency. It differs from other http daemons in that
 the backing store is not the VFS but a proprietary database. The benefits of
 this approach are performance - when the cache is warm, an open() syscall has
-a noticable performance impact. In the future this will also allow for atomic
-replacements of entire webroots.
+a noticable performance impact. This also allows for atomic replacements of
+entire webroots as well as accurate precalculation of MIME types via libmagic
+and the reliable use of strong cache validators (ETags).
 
 ## BUILDING
 
@@ -57,12 +58,25 @@ I/O model to be used:
 
  - sync - traditional synchronous IO
  - sendfile - recommended
- - dio - O\_DIRECT kernel AIO
  - async - kernel AIO, will only be really async if kernel is patched
  - async-sendfile - kernel AIO sendfile, requires patch to kernel and libaio
+ - dio - O\_DIRECT kernel AIO (broken right now)
  
 For example:
 
  $ ./httpd ./vhosts sync
 
 If you like and use this software then press [<img src="http://www.paypalobjects.com/en_US/i/btn/btn_donate_SM.gif">](https://www.paypal.com/cgi-bin/webscr?cmd=_donations&business=gianni%40scaramanga%2eco%2euk&lc=GB&item_name=Gianni%20Tedesco&item_number=scaramanga&currency_code=GBP&bn=PP%2dDonationsBF%3abtn_donateCC_LG%2egif%3aNonHosted) to donate towards its development progress and email me to say what features you would like added.
+
+
+## TODO
+
+The next steps in development are:
+ - multi-process support (ie. for multi-core)
+ - dynamic content via fcgi and uwsgi
+ - 'mount points' in webroots
+ - support for methods other than GET
+ - support for long HTTP responses (ie. those longer than a single buffer)
+ - niceties such as custom error pages, directory indexing
+ - gzip transfer encoding
+ - support more HTTP such as range queries, expires, chunked, etc
