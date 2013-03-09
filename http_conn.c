@@ -543,7 +543,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 
 	snprintf(hbuf, sizeof(hbuf), "%.*s", (int)r->host.v_len, r->host.v_ptr);
 
-	printf("GET %.*s -> '%s' '%s' (host %s)\n",
+	dprintf("GET %.*s -> '%s' '%s' (host %s)\n",
 		(int)r->uri.v_len, r->uri.v_ptr,
 		nads.uri, nads.query, hbuf);
 
