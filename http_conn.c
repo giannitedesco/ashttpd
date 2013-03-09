@@ -61,6 +61,14 @@ static const char * const resp400 =
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>Bad Request</h1></body></html>";
+static const char * const resp500 =
+	"HTTP/1.1 500 Internal Server Error\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 79\r\n"
+	"Connection: Close\r\n"
+	"\r\n"
+	"<html><head><title>Fail Whale</title></head>"
+	"<body><h1>Sorry!</h1></body></html>";
 static const char * const resp301 =
 	"HTTP/1.1 301 Moved Permanently\r\n"
 	"Content-Type: text/html\r\n"
@@ -344,21 +352,6 @@ static int response_404(struct iothread *t, struct _http_conn *h)
 	return 1;
 }
 
-static int response_400(struct iothread *t, struct _http_conn *h)
-{
-	uint8_t *ptr;
-	size_t sz;
-
-	ptr = buf_write(h->h_res, &sz);
-	assert(NULL != ptr && sz >= strlen(resp400));
-
-	memcpy(ptr, resp400, strlen(resp400));
-	buf_done_write(h->h_res, strlen(resp400));
-	h->h_data_len = 0;
-	h->h_conn_close = 1;
-	return 1;
-}
-
 /* FIXME: persistent connection handling */
 static int response_501(struct iothread *t, struct _http_conn *h)
 {
@@ -398,6 +391,36 @@ static int response_301(struct iothread *t, struct _http_conn *h,
 			(int)loc->v_len, loc->v_ptr);
 	buf_done_write(h->h_res, n);
 	h->h_data_len = 0;
+	return 1;
+}
+
+static int response_400(struct iothread *t, struct _http_conn *h)
+{
+	uint8_t *ptr;
+	size_t sz;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp400));
+
+	memcpy(ptr, resp400, strlen(resp400));
+	buf_done_write(h->h_res, strlen(resp400));
+	h->h_data_len = 0;
+	h->h_conn_close = 1;
+	return 1;
+}
+
+static int response_500(struct iothread *t, struct _http_conn *h)
+{
+	uint8_t *ptr;
+	size_t sz;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp500));
+
+	memcpy(ptr, resp500, strlen(resp500));
+	buf_done_write(h->h_res, strlen(resp500));
+	h->h_data_len = 0;
+	h->h_conn_close = 1;
 	return 1;
 }
 
@@ -514,17 +537,13 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	webroot_t root;
 	int hit = 0;
 
-	if ( search_uri.v_len > 1 &&
-		search_uri.v_ptr[search_uri.v_len - 1] == '/' )
-		search_uri.v_len--;
-
 	nads.buf = (char *)r->uri.v_ptr;
 	nads.buf_len = r->uri.v_len;
 	nads_normalize(&nads);
 
 	snprintf(hbuf, sizeof(hbuf), "%.*s", (int)r->host.v_len, r->host.v_ptr);
 
-	dprintf("GET %.*s -> '%s' '%s' (host %s)\n",
+	printf("GET %.*s -> '%s' '%s' (host %s)\n",
 		(int)r->uri.v_len, r->uri.v_ptr,
 		nads.uri, nads.query, hbuf);
 
@@ -578,8 +597,8 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 
 	if ( h->h_data_len && !head ) {
 		if ( !_io_prep(t, h) ) {
-			/* FIXME: insufficient resources http code */
-			return 0;
+			response_500(t, h);
+			return 1;
 		}
 	}
 
@@ -673,10 +692,25 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		return;
 	}
 
+	/* For requests with no host header (HTTP/1.0, or malformed HTTP/1.1
+	 * we use getsockname to figure out what our host is.
+	 */
+	if ( !r.host.v_len ) {
+		struct sockaddr_in in;
+		socklen_t len = sizeof(in);
+		char buf[64];
+
+		getsockname(h->h_nbio.fd, (struct sockaddr *)&in, &len);
+
+		r.host.v_len = snprintf((char *)buf, 64, "%s:%d",
+				inet_ntoa((struct in_addr){in.sin_addr.s_addr}),
+				ntohs(in.sin_port));
+		r.host.v_ptr = (uint8_t *)buf;
+	}
+
 	h->h_conn_close = r.conn_close;
 
 	if ( !vstrcmp_fast(&r.method, "GET") ) {
-		/* FIXME: bad request */
 		ret = handle_get(t, h, &r, 0);
 	}else if ( !vstrcmp_fast(&r.method, "HEAD") ) {
 		ret = handle_get(t, h, &r, 1);
