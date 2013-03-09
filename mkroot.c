@@ -148,7 +148,7 @@ static struct webroot *webroot_new(const char *base)
 	if ( NULL == r->r_str_mem )
 		goto out_free_mime;
 
-	r->r_magic = magic_open(MAGIC_MIME_TYPE|MAGIC_MIME_ENCODING);
+	r->r_magic = magic_open(MAGIC_MIME_TYPE);
 	if ( NULL == r->r_magic )
 		goto out_free_str;
 
