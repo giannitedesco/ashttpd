@@ -336,7 +336,6 @@ static int response_404(struct iothread *t, struct _http_conn *h)
 	return 1;
 }
 
-/* FIXME: persistent connection handling */
 static int response_400(struct iothread *t, struct _http_conn *h)
 {
 	uint8_t *ptr;
@@ -348,6 +347,7 @@ static int response_400(struct iothread *t, struct _http_conn *h)
 	memcpy(ptr, resp400, strlen(resp400));
 	buf_done_write(h->h_res, strlen(resp400));
 	h->h_data_len = 0;
+	h->h_conn_close = 1;
 	return 1;
 }
 
@@ -487,6 +487,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	char hbuf[r->host.v_len + 1];
 	time_t mt;
 	struct nads nads;
+	webroot_t root;
 	int hit = 0;
 
 	if ( search_uri.v_len > 1 &&
@@ -506,12 +507,12 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	search_uri.v_ptr = (uint8_t *)nads.uri;
 	search_uri.v_len = strlen(nads.uri);
 
-	h->h_webroot = vhosts_lookup(h->h_owner->l_vhosts, hbuf);
-	if ( NULL == h->h_webroot ) {
+	root = vhosts_lookup(h->h_owner->l_vhosts, hbuf);
+	if ( NULL == root ) {
 		return response_403(t, h);
 	}
 
-	if ( !webroot_find(h->h_webroot, &search_uri, &n) ) {
+	if ( !webroot_find(root, &search_uri, &n) ) {
 #if 0
 		h->h_data_off = obj404_f_ofs;
 		h->h_data_len = obj404_f_len;
@@ -601,8 +602,10 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 	buf_done_write(h->h_res, res.r_len);
 	if ( head )
 		h->h_data_len = 0;
-	else
+	else {
+		h->h_webroot = root;
 		webroot_ref(h->h_webroot);
+	}
 	return 1;
 }
 
@@ -615,13 +618,28 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 
 	assert(h->h_state == HTTP_CONN_REQUEST);
 
+	/* first try allocate buffer to respond,
+	 * we always need to respond, so do this
+	 * first and kill the conn if we fail
+	*/
+	h->h_res = buf_alloc_res();
+	if ( NULL == h->h_res ) {
+		printf("OOM on res...\n");
+		http_kill(t, h);
+		return;
+	}
+
+	/* Respond or die! */
+	h->h_state = HTTP_CONN_HEADER;
+	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
+
+	/* Parse the request */
 	ptr = buf_read(h->h_req, &sz);
 	memset(&r, 0, sizeof(r));
 	hlen = http_req(&r, ptr, sz);
 	//printf("%.*s\n", (int)sz, ptr);
 	if ( 0 == hlen ) {
-		/* FIXME: error 400 */
-		http_kill(t, h);
+		response_400(t, h);
 		return;
 	}
 
@@ -630,16 +648,6 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		http_kill(t, h);
 		return;
 	}
-
-	h->h_res = buf_alloc_res();
-	if ( NULL == h->h_res ) {
-		printf("OOM on res...\n");
-		http_kill(t, h);
-		return;
-	}
-
-	nbio_set_wait(t, &h->h_nbio, NBIO_WRITE);
-	h->h_state = HTTP_CONN_HEADER;
 
 	h->h_conn_close = r.conn_close;
 
