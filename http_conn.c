@@ -57,6 +57,7 @@ static const char * const resp400 =
 	"HTTP/1.1 400 Bad Request\r\n"
 	"Content-Type: text/html\r\n"
 	"Content-Length: 82\r\n"
+	"Connection: Close\r\n"
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>Bad Request</h1></body></html>";
@@ -82,6 +83,13 @@ static const char * const resp404 =
 	"\r\n"
 	"<html><head><title>Fuck Off</title></head>"
 	"<body><h1>y u no find?</h1></body></html>";
+static const char * const resp501 =
+	"HTTP/1.1 501 Method Not Implemented\r\n"
+	"Content-Type: text/html\r\n"
+	"Content-Length: 87\r\n"
+	"\r\n"
+	"<html><head><title>Fuck...</title></head>"
+	"<body><h1>y u no implement?</h1></body></html>";
 
 
 #define _io_init	(*fio_current->init)
@@ -346,6 +354,22 @@ static int response_400(struct iothread *t, struct _http_conn *h)
 
 	memcpy(ptr, resp400, strlen(resp400));
 	buf_done_write(h->h_res, strlen(resp400));
+	h->h_data_len = 0;
+	h->h_conn_close = 1;
+	return 1;
+}
+
+/* FIXME: persistent connection handling */
+static int response_501(struct iothread *t, struct _http_conn *h)
+{
+	uint8_t *ptr;
+	size_t sz;
+
+	ptr = buf_write(h->h_res, &sz);
+	assert(NULL != ptr && sz >= strlen(resp501));
+
+	memcpy(ptr, resp501, strlen(resp501));
+	buf_done_write(h->h_res, strlen(resp501));
 	h->h_data_len = 0;
 	h->h_conn_close = 1;
 	return 1;
@@ -657,7 +681,7 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	}else if ( !vstrcmp_fast(&r.method, "HEAD") ) {
 		ret = handle_get(t, h, &r, 1);
 	}else{
-		ret = response_400(t, h);
+		ret = response_501(t, h);
 	}
 
 	if ( !ret ) {
