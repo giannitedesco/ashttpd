@@ -456,7 +456,7 @@ static int print_time(char buf[HTTP_TIME_BUF + 1], struct tm *tm)
 		dayofweek[tm->tm_wday],
 		tm->tm_mday,
 		monthofyear[tm->tm_mon - 1],
-		tm->tm_year,
+		tm->tm_year + 1900,
 		tm->tm_hour,
 		tm->tm_min,
 		tm->tm_sec);
@@ -561,11 +561,14 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 		h->h_data_len = obj404_f_len;
 		mime_type = obj404_mime_type;
 #else
+		dprintf("404\n");
 		return response_404(t, h);
 #endif
 	}else{
 		switch(n.code) {
 		case HTTP_MOVED_PERMANENTLY:
+			dprintf("301 -> %.*s\n",
+				(int)n.u.moved.v_len, n.u.moved.v_ptr);
 			return response_301(t, h, &r->host, &n.u.moved);
 		case HTTP_FORBIDDEN:
 			return response_403(t, h);
@@ -643,6 +646,7 @@ static int handle_get(struct iothread *t, struct _http_conn *h,
 
 	reqs++;
 	buf_done_write(h->h_res, res.r_len);
+	dprintf("%.*s\n", (int)res.r_len, h->h_res->b_base);
 	if ( head )
 		h->h_data_len = 0;
 	else {
@@ -680,7 +684,8 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 	ptr = buf_read(h->h_req, &sz);
 	memset(&r, 0, sizeof(r));
 	hlen = http_req(&r, ptr, sz);
-	//printf("%.*s\n", (int)sz, ptr);
+	dprintf("%zu/%zu bytes were request\n", hlen, sz);
+	dprintf("%.*s\n", (int)sz, ptr);
 	if ( 0 == hlen ) {
 		response_400(t, h);
 		return;
@@ -723,7 +728,6 @@ static void handle_request(struct iothread *t, struct _http_conn *h)
 		return;
 	}
 
-	dprintf("%zu/%zu bytes were request\n", hlen, sz);
 	buf_done_read(h->h_req, hlen);
 
 	buf_read(h->h_req, &sz);
