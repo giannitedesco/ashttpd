@@ -541,6 +541,7 @@ static int webroot_write(struct webroot *r, fobuf_t out)
 
 	if ( !write_etags(r, out) )
 		return 0;
+
 	return 1;
 }
 
@@ -932,6 +933,7 @@ static int do_mkroot(const char *dir, const char *outfn)
 		goto out;
 	}
 
+	printf("%s: syncing %s\n", cmd, outfn);
 	if ( !fobuf_close(out) )
 		goto out_close;
 
