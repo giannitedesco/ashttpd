@@ -438,7 +438,15 @@ again:
 
 	blk_SHA1_Final(sha, &ctx);
 	etag(f->o_u.file.digest, sha);
-	rc = 1;
+	if ( !len ) {
+		rc = 1;
+	}else{
+		/* should never happen to tmpchunks */
+		assert(f->o_u.file.content == FILE_PATH);
+		fprintf(stderr, "%s: %s size was modified during scan\n",
+			cmd, f->o_u.file.u.path);
+	}
+
 out_close:
 	if ( f->o_u.file.content == FILE_PATH ) {
 		close(fd);
