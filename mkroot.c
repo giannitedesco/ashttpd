@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <assert.h>
+#include <stdarg.h>
 
 #include <magic.h>
 
@@ -42,8 +43,10 @@ static const char * const index_pages[] = {
 	"default.html",
 };
 
+static const char *tmpchunks_pattern = "/tmp/ashttpd.mkroot.XXXXXX";
 static const char *cmd = "mkroot";
 static int dotfiles; /* whether to include dot files */
+static int indexdirs = 1;
 
 struct mime_type {
 	struct list_head m_list;
@@ -60,12 +63,18 @@ struct object {
 	union {
 		struct {
 			struct mime_type *type;
+			union {
+				char *path;
+				uint64_t tmpoff;
+			}u;
 			uint64_t size;
-			char *path;
 			uint64_t off;
 			dev_t dev;
 			ino_t ino;
 			time_t mtime;
+#define FILE_PATH	0
+#define FILE_TMPCHUNK	1
+			unsigned int content;
 			uint8_t digest[WEBROOT_DIGEST_LEN];
 		} file;
 		struct {
@@ -91,11 +100,13 @@ struct webroot {
 	hgang_t r_obj_mem;
 	hgang_t r_mime_mem;
 	strpool_t r_str_mem;
+	fobuf_t r_tmpchunks;
 	const char *r_base;
 	trie_t r_trie;
 	struct trie_entry *r_trie_ent;
 	magic_t r_magic;
 	uint64_t r_files_sz;
+	uint64_t r_tmpoff;
 	unsigned int r_num_uri;
 	unsigned int r_num_redirect;
 	unsigned int r_num_file;
@@ -110,13 +121,13 @@ static char *path_splice(const char *dir, const char *path)
 
 	olen = snprintf(NULL, 0, "%s/%s", dir, path);
 
-	ret = malloc(olen + 1);
+	ret = malloc(olen + 2);
 	if ( NULL == ret ) {
 		fprintf(stderr, "%s: calloc: %s\n", cmd, os_err());
 		return NULL;
 	}
 
-	if ( path[0] == '/' )
+	if ( (*dir && dir[strlen(dir) - 1] == '/') || path[0] == '/' )
 		snprintf(ret, olen + 1, "%s%s", dir, path);
 	else
 		snprintf(ret, olen + 1, "%s/%s", dir, path);
@@ -127,6 +138,8 @@ static char *path_splice(const char *dir, const char *path)
 static struct webroot *webroot_new(const char *base)
 {
 	struct webroot *r;
+	char buf[strlen(tmpchunks_pattern) + 1];
+	int fd;
 
 	r = calloc(1, sizeof(*r));
 	if ( NULL == r)
@@ -155,6 +168,22 @@ static struct webroot *webroot_new(const char *base)
 	if ( magic_load(r->r_magic, NULL) )
 		goto out_free_magic;
 
+	snprintf(buf, sizeof(buf), "%s", tmpchunks_pattern);
+	fd = mkstemp(buf);
+	if ( fd < 0 ) {
+		fprintf(stderr, "%s: mkstemp: %s\n", cmd, os_err());
+		goto out_free_magic;
+	}
+	printf("%s: Using %s for temp chunks\n", cmd, buf);
+	if ( unlink(buf) ) {
+		/* not fatal */
+		fprintf(stderr, "%s: %s: unlink %s\n", cmd, buf, os_err());
+	}
+
+	r->r_tmpchunks = fobuf_new(fd, 0);
+	if ( NULL == r->r_tmpchunks )
+		goto out_close;
+
 	INIT_LIST_HEAD(&r->r_uri);
 	INIT_LIST_HEAD(&r->r_redirect);
 	INIT_LIST_HEAD(&r->r_file);
@@ -162,6 +191,8 @@ static struct webroot *webroot_new(const char *base)
 	r->r_base = base;
 	goto out;
 
+out_close:
+	close(fd);
 out_free_magic:
 	magic_close(r->r_magic);
 out_free_str:
@@ -182,6 +213,14 @@ out:
 static void webroot_free(struct webroot *r)
 {
 	if ( r ) {
+		/* fobuf likes to fsync stuff for safety
+		 * but this is just a tmpfile so let's
+		 * just nuke it quickly. Assumes previous
+		 * code did the right things.
+		 */
+		close(fobuf_fd(r->r_tmpchunks));
+		fobuf_abort(r->r_tmpchunks);
+
 		hgang_free(r->r_uri_mem);
 		hgang_free(r->r_obj_mem);
 		hgang_free(r->r_mime_mem);
@@ -348,38 +387,51 @@ static void etag(uint8_t digest[WEBROOT_DIGEST_LEN], uint8_t sha[20])
 	memcpy(digest, sha, 20);
 }
 
-static int write_file(struct object *f, fobuf_t out)
+static int write_file(struct webroot *r, struct object *f, fobuf_t out)
 {
 	uint8_t buf[BUFFER_SIZE];
 	blk_SHA_CTX ctx;
 	uint8_t sha[20];
 	ssize_t ret;
+	uint64_t len;
 	int rc = 0;
 	int fd;
 
-	fd = open(f->o_u.file.path, O_RDONLY);
-	if ( fd < 0 ) {
-		fprintf(stderr, "%s: %s: open: %s\n",
-			cmd, f->o_u.file.path, os_err());
-		goto out;
+	if ( f->o_u.file.content == FILE_PATH ) {
+		fd = open(f->o_u.file.u.path, O_RDONLY);
+		if ( fd < 0 ) {
+			fprintf(stderr, "%s: %s: open: %s\n",
+				cmd, f->o_u.file.u.path, os_err());
+			goto out;
+		}
+	}else if ( f->o_u.file.content == FILE_TMPCHUNK ) {
+		fd = fobuf_fd(r->r_tmpchunks);
+		if ( lseek(fd, f->o_u.file.u.tmpoff, SEEK_SET) < 0 ) {
+			fprintf(stderr, "%s: lseek: %s\n", cmd, os_err());
+			return 0;
+		}
+	}else{
+		abort();
 	}
 
 	blk_SHA1_Init(&ctx);
+	len = f->o_u.file.size;
 again:
-	ret = read(fd, buf, sizeof(buf));
+	ret = read(fd, buf, (len > sizeof(buf)) ? sizeof(buf) : len);
 	if ( ret < 0 ) {
 		fprintf(stderr, "%s: %s: read: %s\n",
-			cmd, f->o_u.file.path, os_err());
+			cmd, f->o_u.file.u.path, os_err());
 		goto out_close;
 	}
 
 	if ( ret && !fobuf_write(out, buf, ret) ) {
 		fprintf(stderr, "%s: %s: write: %s\n",
-			cmd, f->o_u.file.path, os_err());
+			cmd, f->o_u.file.u.path, os_err());
 		goto out_close;
 	}
 
 	blk_SHA1_Update(&ctx, buf, ret);
+	len -= (size_t)ret;
 
 	if ( ret )
 		goto again;
@@ -388,7 +440,9 @@ again:
 	etag(f->o_u.file.digest, sha);
 	rc = 1;
 out_close:
-	close(fd);
+	if ( f->o_u.file.content == FILE_PATH ) {
+		close(fd);
+	}
 out:
 	return rc;
 }
@@ -396,8 +450,17 @@ out:
 static int write_files(struct webroot *r, fobuf_t out)
 {
 	struct object *obj;
+
+	/* make sure the tmpchunks data is actually flushed
+	 * from buffers and in to the file, since the fobuf
+	 * cache has no way of doing coherancy because we're
+	 * reading with read(2) behind its back
+	 */
+	if ( !fobuf_flush(r->r_tmpchunks) )
+		return 0;
+
 	list_for_each_entry(obj, &r->r_file, o_list) {
-		if ( !write_file(obj, out) )
+		if ( !write_file(r, obj, out) )
 			return 0;
 	}
 	return 1;
@@ -512,6 +575,7 @@ static int write_etags(struct webroot *r, fobuf_t out)
 		trie_trie_size(r->r_trie) +
 		sizeof(struct webroot_redirect) * r->r_num_redirect;
 	if ( lseek(fd, off, SEEK_SET) < 0 ) {
+		fprintf(stderr, "%s: lseek: %s\n", cmd, os_err());
 		return 0;
 	}
 
@@ -661,23 +725,19 @@ static struct object *obj_code(struct webroot *r, int code)
 }
 
 static struct object *obj_file(struct webroot *r,
-				const char *path,
 				dev_t dev,
 				ino_t ino,
 				time_t mtime,
 				uint64_t size)
 {
-	struct mime_type *m;
 	struct object *obj;
-	const char *mime;
 
 	/* TODO: use a hash table, benchmarked at causing 200ms
-	 * slowdown for 5,000 files. Dwarfed by I/O.
+	 * slowdown for 5,000 files. Dwarfed by I/O and SHA1.
 	 */
 	list_for_each_entry(obj, &r->r_file, o_list) {
 		if ( dev == obj->o_u.file.dev &&
 			ino == obj->o_u.file.ino ) {
-			printf("hit %s\n", path);
 			return obj;
 		}
 	}
@@ -688,24 +748,11 @@ static struct object *obj_file(struct webroot *r,
 
 	obj->o_type = OBJ_TYPE_FILE;
 
-	mime = magic_file(r->r_magic, path);
-	m = mime_add(r, mime);
-	if ( NULL == m ) {
-		hgang_return(r->r_obj_mem, obj);
-		return NULL;
-	}
-
-	obj->o_u.file.path = webroot_strdup(r, path);
-	if ( NULL == obj->o_u.file.path ) {
-		hgang_return(r->r_obj_mem, obj);
-		return NULL;
-	}
-
 	obj->o_u.file.size = size;
-	obj->o_u.file.type = m;
 	obj->o_u.file.dev = dev;
 	obj->o_u.file.ino = ino;
 	obj->o_u.file.mtime = mtime;
+	obj->o_u.file.content = FILE_PATH;
 
 	list_add_tail(&obj->o_list, &r->r_file);
 	r->r_num_file++;
@@ -713,6 +760,68 @@ static struct object *obj_file(struct webroot *r,
 	return obj;
 }
 
+static struct object *obj_file_path(struct webroot *r,
+					const char *path,
+					dev_t dev,
+					ino_t ino,
+					time_t mtime,
+					uint64_t size)
+{
+	struct object *obj;
+	struct mime_type *m;
+	const char *mime;
+
+	obj = obj_file(r, dev, ino, mtime, size);
+	if ( NULL == obj )
+		return NULL;
+
+	obj->o_u.file.content = FILE_PATH;
+
+	obj->o_u.file.u.path = webroot_strdup(r, path);
+	if ( NULL == obj->o_u.file.u.path ) {
+		list_del(&obj->o_list);
+		hgang_return(r->r_obj_mem, obj);
+		return NULL;
+	}
+
+	mime = magic_file(r->r_magic, path);
+	m = mime_add(r, mime);
+	if ( NULL == m ) {
+		list_del(&obj->o_list);
+		hgang_return(r->r_obj_mem, obj);
+		return NULL;
+	}
+	obj->o_u.file.type = m;
+
+	return obj;
+}
+
+static struct object *obj_file_tmpchunks(struct webroot *r,
+					const char *mime,
+					dev_t dev,
+					ino_t ino,
+					time_t mtime)
+{
+	struct object *obj;
+	struct mime_type *m;
+
+	obj = obj_file(r, dev, ino, mtime, 0);
+	if ( NULL == obj )
+		return NULL;
+
+	obj->o_u.file.content = FILE_TMPCHUNK;
+	obj->o_u.file.u.tmpoff = r->r_tmpoff;
+
+	m = mime_add(r, mime);
+	if ( NULL == m ) {
+		list_del(&obj->o_list);
+		hgang_return(r->r_obj_mem, obj);
+		return NULL;
+	}
+	obj->o_u.file.type = m;
+
+	return obj;
+}
 static int scan_item(struct webroot *r, const char *dir, const char *u);
 
 static int scan_dir(struct webroot *r, const char *dir, const char *path)
@@ -748,52 +857,163 @@ out:
 	return ret;
 }
 
-static int add_index(struct webroot *r, const char *u)
+static int try_index(struct webroot *r, const char *u,
+			const char *page, struct object **obj)
+{
+	struct stat st;
+	char *uri, *ipath;
+
+	uri = path_splice(u, page);
+	if ( NULL == uri )
+		return 0;
+
+	ipath = webroot_lookup(r, uri);
+	free(uri);
+	if ( NULL == ipath )
+		return 0;
+
+	if ( stat(ipath, &st) ) {
+		if ( errno == ENOENT ) {
+			free(ipath);
+			*obj = NULL;
+			return 1;
+		}
+		fprintf(stderr, "%s: %s: stat: %s\n",
+			cmd, ipath, os_err());
+		free(ipath);
+		return 0;
+	}
+
+	if ( S_ISREG(st.st_mode) ) {
+		dprintf("index: %s -> %s\n", u, ipath);
+		*obj = obj_file_path(r, ipath, st.st_dev, st.st_ino,
+				st.st_mtime, st.st_size);
+		free(ipath);
+		if ( NULL == *obj )
+			return 0;
+
+		/* found it, OK */
+		return 1;
+	}
+
+	/* didn't find it but OK */
+	free(ipath);
+	*obj = NULL;
+	return 1;
+}
+
+_printf(2, 3) static void tc_printf(struct webroot *r, const char *fmt, ...)
+{
+	static char *abuf;
+	static size_t abuflen;
+	int len;
+	va_list va;
+	char *new;
+
+	if ( NULL == r->r_tmpchunks ) {
+		/* callers MUST check that this didn't happen */
+		return;
+	}
+
+again:
+	va_start(va, fmt);
+
+	len = vsnprintf(abuf, abuflen, fmt, va);
+	if ( len < 0 ) /* bug in old glibc */
+		len = 0;
+	if ( (size_t)len < abuflen )
+		goto done;
+
+	new = realloc(abuf, len + 1);
+	if ( new == NULL )
+		goto done;
+
+	abuf = new;
+	abuflen = len + 1;
+	goto again;
+
+done:
+	/* if writes fail, we just get rid of all tmpchunks,
+	 * caller must check and abort
+	*/
+	if ( !fobuf_write(r->r_tmpchunks, abuf, (size_t)len) ) {
+		int fd;
+		fprintf(stderr, "%s: fobuf_write: %s\n", cmd, os_err());
+		fd = fobuf_fd(r->r_tmpchunks);
+		fobuf_abort(r->r_tmpchunks);
+		close(fd);
+		r->r_tmpchunks = NULL;
+	}else{
+		r->r_tmpoff += (size_t)len;
+	}
+	va_end(va);
+}
+
+static struct object *index_dir(struct webroot *r, struct stat *st,
+				const char *path, const char *u)
+{
+	struct object *obj;
+	struct dirent *e;
+	DIR *d;
+
+	printf("%s: indexing %s\n", cmd, path);
+
+	obj = obj_file_tmpchunks(r, "text/html", st->st_dev, st->st_ino,
+				 st->st_mtime);
+	if ( NULL == obj )
+		return NULL;
+
+	tc_printf(r, "<!DOCTYPE HTML PUBLIC "
+				"\"-//W3C//DTD HTML 3.2 Final//EN\">");
+	tc_printf(r, "<html>\n\t<head><title>Index of %s</title>\t</head>\n",
+			u);
+	tc_printf(r, "<body><h1>Index of %s</h1>\n", u);
+	tc_printf(r, "</body>\n</html>");
+
+	d = opendir(path);
+	if ( NULL == d ) {
+		fprintf(stderr, "%s: %s: opendir: %s\n", cmd, path, os_err());
+		return NULL;
+	}
+
+	while( (e = readdir(d)) ) {
+		char *uri;
+		if ( !strcmp(e->d_name, ".") || !strcmp(e->d_name, "..") )
+			continue;
+		if ( !dotfiles && e->d_name[0] == '.' )
+			continue;
+
+		uri = path_splice(u, e->d_name);
+		tc_printf(r, "<a href=\"%s\">%s</a><br>\n", uri, e->d_name);
+		free(uri);
+	}
+
+	closedir(d);
+
+	if ( NULL == r->r_tmpchunks )
+		return NULL;
+	obj->o_u.file.size = r->r_tmpoff - obj->o_u.file.u.tmpoff;
+	return obj;
+}
+
+static int add_index(struct webroot *r, struct stat *st,
+			const char *path, const char *u)
 {
 	unsigned int i;
 	struct object *obj = NULL;
 
 	dprintf("indexing %s\n", u);
-	for(i = 0; i < ARRAY_SIZE(index_pages); i++) {
-		struct stat st;
-		char *uri, *ipath;
-
-		uri = path_splice(u, index_pages[i]);
-		if ( NULL == uri )
+	for(i = 0; NULL == obj && i < ARRAY_SIZE(index_pages); i++) {
+		if ( !try_index(r, u, index_pages[i], &obj) )
 			return 0;
-
-		ipath = webroot_lookup(r, uri);
-		free(uri);
-		if ( NULL == ipath )
-			return 0;
-
-		if ( stat(ipath, &st) ) {
-			if ( errno == ENOENT ) {
-				free(ipath);
-				continue;
-			}
-			fprintf(stderr, "%s: %s: stat: %s\n",
-				cmd, ipath, os_err());
-			free(ipath);
-			return 0;
-		}
-
-		if ( S_ISREG(st.st_mode) ) {
-			dprintf("index: %s -> %s\n", u, ipath);
-			obj = obj_file(r, ipath, st.st_dev, st.st_ino,
-					st.st_mtime, st.st_size);
-			free(ipath);
-			if ( NULL == obj )
-				return 0;
-			break;
-		}else{
-			free(ipath);
-			continue;
-		}
 	}
 
 	if ( NULL == obj ) {
-		obj = obj_code(r, 403 /* forbidden */);
+		if ( indexdirs ) {
+			obj = index_dir(r, st, path, u);
+		}else{
+			obj = obj_code(r, 403 /* forbidden */);
+		}
 	}
 	if ( NULL == obj )
 		return 0;
@@ -827,7 +1047,7 @@ static int scan_item(struct webroot *r, const char *dir, const char *u)
 		if ( NULL == dpath )
 			goto out_free;
 
-		if ( !add_index(r, dpath) ) {
+		if ( !add_index(r, &st, path, dpath) ) {
 			free(dpath);
 			goto out_free;
 		}
@@ -845,7 +1065,7 @@ static int scan_item(struct webroot *r, const char *dir, const char *u)
 			goto out_free;
 
 	}else if ( S_ISREG(st.st_mode) ) {
-		obj = obj_file(r, path, st.st_dev, st.st_ino,
+		obj = obj_file_path(r, path, st.st_dev, st.st_ino,
 				st.st_mtime, st.st_size);
 		if ( NULL == obj )
 			goto out_free;
